@@ -1,0 +1,134 @@
+@page "/productos/crear"
+@rendermode InteractiveServer
+@inject ProductoApiClient ProductoApi
+@inject CategoriaApiClient CategoriaApi
+@inject NavigationManager Nav
+
+<PageTitle>Nuevo producto</PageTitle>
+
+<h1>Nuevo producto</h1>
+
+@if (_error is not null)
+{
+    <p class="error">@_error</p>
+}
+
+@if (_categorias is null)
+{
+    <p>Cargando…</p>
+}
+else
+{
+    <EditForm Model="_modelo" OnValidSubmit="GuardarAsync" FormName="crearProducto">
+        <DataAnnotationsValidator />
+
+        <div class="campo">
+            <label>Código</label>
+            <InputText @bind-Value="_modelo.Codigo" />
+        </div>
+        <div class="campo">
+            <label>Nombre</label>
+            <InputText @bind-Value="_modelo.Nombre" />
+        </div>
+        <div class="campo">
+            <label>Categoría</label>
+            <InputSelect @bind-Value="_modelo.CategoriaId">
+                <option value="0">-- Seleccionar --</option>
+                @foreach (var c in _categorias)
+                {
+                    <option value="@c.Id">@c.CodigoCategoria @(string.IsNullOrWhiteSpace(c.Descripcion) ? "" : $"— {c.Descripcion}")</option>
+                }
+            </InputSelect>
+        </div>
+        <div class="campo">
+            <label>Unidad</label>
+            <InputSelect @bind-Value="_modelo.UnidadMedida">
+                <option value="UNI">UNI</option>
+                <option value="CAJA">CAJA</option>
+                <option value="PQTS">PQTS</option>
+            </InputSelect>
+        </div>
+        <div class="campo">
+            <label>Costo unitario</label>
+            <InputNumber @bind-Value="_modelo.CostoUnitario" />
+        </div>
+        <div class="campo">
+            <label>Stock mínimo</label>
+            <InputNumber @bind-Value="_modelo.StockMinimo" />
+        </div>
+        <div class="campo">
+            <label>Imagen (URL)</label>
+            <InputText @bind-Value="_modelo.ImagenUrl" />
+        </div>
+        <div class="campo">
+            <label>Detalle</label>
+            <InputTextArea @bind-Value="_modelo.Detalle" />
+        </div>
+
+        <button type="submit" disabled="@(_guardando || _modelo.CategoriaId == 0)">@(_guardando ? "Guardando…" : "Guardar")</button>
+        <a href="/productos">Cancelar</a>
+    </EditForm>
+}
+
+<style>
+    .campo { margin-bottom: .75rem; display: flex; flex-direction: column; gap: .25rem; max-width: 420px; }
+    label { font-weight: 600; }
+    input, textarea, select { padding: .4rem; border: 1px solid #ccc; border-radius: 4px; }
+    button { margin-top: .5rem; padding: .5rem 1rem; background: #1f3864; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: default; }
+    .error { color: #a33; font-weight: 600; }
+</style>
+
+@code {
+    private List<CategoriaDto>? _categorias;
+    private readonly ModeloProducto _modelo = new();
+    private bool _guardando;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _categorias = await CategoriaApi.ListarAsync(); }
+        catch (ApiException ex) { _error = ex.Message; _categorias = []; }
+    }
+
+    private async Task GuardarAsync()
+    {
+        if (_guardando) return;
+        _guardando = true;
+        _error = null;
+
+        try
+        {
+            var dto = new CrearProductoDto(
+                _modelo.Codigo, _modelo.Nombre, _modelo.CategoriaId, _modelo.UnidadMedida,
+                _modelo.CostoUnitario, _modelo.StockMinimo, _modelo.Detalle, _modelo.ImagenUrl);
+
+            await ProductoApi.CrearAsync(dto);
+            Nav.NavigateTo("/productos");
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _guardando = false;
+        }
+    }
+
+    private class ModeloProducto
+    {
+        [System.ComponentModel.DataAnnotations.Required]
+        public string Codigo { get; set; } = "";
+
+        [System.ComponentModel.DataAnnotations.Required]
+        public string Nombre { get; set; } = "";
+
+        public int CategoriaId { get; set; }
+        public string UnidadMedida { get; set; } = "UNI";
+        public decimal? CostoUnitario { get; set; }
+        public decimal StockMinimo { get; set; }
+        public string? ImagenUrl { get; set; }
+        public string? Detalle { get; set; }
+    }
+}

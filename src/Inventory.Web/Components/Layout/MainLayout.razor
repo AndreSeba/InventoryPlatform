@@ -1,0 +1,35 @@
+@inherits LayoutComponentBase
+
+<div class="app">
+    <nav class="topnav">
+        <span class="brand">Inventory Platform</span>
+        <a href="/">Inicio</a>
+        <a href="/productos">Productos</a>
+        <a href="/movimientos/registrar">Movimientos</a>
+        <a href="/movimientos/prestamos">Préstamos</a>
+        <a href="/solicitudes">Solicitudes</a>
+        <a href="/conteos">Conteo físico</a>
+        <a href="/categorias">Categorías</a>
+        <a href="/areas">Áreas</a>
+        <a href="/ubicaciones">Ubicaciones</a>
+    </nav>
+
+    <main class="content">
+        @Body
+    </main>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    Ocurrió un error inesperado.
+    <a href="." class="reload">Recargar</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+<style>
+    .app { font-family: Segoe UI, system-ui, sans-serif; }
+    .topnav { display: flex; align-items: center; gap: 1rem; padding: .75rem 1.5rem; background: #1f3864; flex-wrap: wrap; }
+    .topnav .brand { color: #fff; font-weight: 600; margin-right: .5rem; }
+    .topnav a { color: #dce6f1; text-decoration: none; font-size: .92rem; }
+    .topnav a:hover { color: #fff; text-decoration: underline; }
+    .content { padding: 1.5rem; max-width: 1200px; margin: 0 auto; }
+</style>

@@ -1,0 +1,158 @@
+@page "/conteos"
+@rendermode InteractiveServer
+@inject ConteoApiClient ConteoApi
+@inject ProductoApiClient ProductoApi
+@inject UbicacionApiClient UbicacionApi
+
+<PageTitle>Conteo físico</PageTitle>
+
+<h1>Conteo físico</h1>
+
+@if (_error is not null)
+{
+    <p class="error">@_error</p>
+}
+@if (_ok is not null)
+{
+    <p class="ok">@_ok</p>
+}
+
+<div class="campo">
+    <label>Sesión de conteo</label>
+    <input @bind="_sesion" @bind:after="CargarSesionAsync" placeholder="Ej. INVENTARIO-2026-09" style="max-width:280px" />
+</div>
+
+@if (_productos is null || _ubicaciones is null)
+{
+    <p>Cargando…</p>
+}
+else
+{
+    <div class="fila">
+        <select @bind="_productoId">
+            <option value="0">-- Producto --</option>
+            @foreach (var p in _productos)
+            {
+                <option value="@p.Id">@p.CodigoProducto — @p.Nombre</option>
+            }
+        </select>
+        <select @bind="_ubicacionId">
+            <option value="0">-- Ubicación --</option>
+            @foreach (var u in _ubicaciones)
+            {
+                <option value="@u.Id">@u.CodigoUbicacion</option>
+            }
+        </select>
+        <input type="number" min="1" @bind="_numeroConteo" style="width:90px" title="N.º de conteo" />
+        <input type="number" step="0.01" @bind="_cantidadContada" placeholder="Cantidad contada" style="width:140px" />
+        <button disabled="@_guardando" @onclick="RegistrarAsync">@(_guardando ? "Guardando…" : "Registrar")</button>
+    </div>
+}
+
+@if (string.IsNullOrWhiteSpace(_sesion))
+{
+    <p class="ayuda">Escribí un nombre de sesión para ver los conteos ya cargados.</p>
+}
+else if (_conteos is null)
+{
+    <p>Cargando…</p>
+}
+else if (_conteos.Count == 0)
+{
+    <p>Todavía no hay conteos en esta sesión.</p>
+}
+else
+{
+    <table>
+        <thead><tr><th>Producto</th><th>Ubicación</th><th>N.º</th><th>Contado</th><th>Sistema</th><th>Diferencia</th></tr></thead>
+        <tbody>
+            @foreach (var c in _conteos)
+            {
+                <tr class="@(c.Diferencia != 0 ? "con-diferencia" : "")">
+                    <td>@c.ProductoNombre</td>
+                    <td>@c.UbicacionCodigo</td>
+                    <td>@c.NumeroConteo</td>
+                    <td>@c.CantidadContada.ToString("N2")</td>
+                    <td>@c.ExistenciaSistema.ToString("N2")</td>
+                    <td>@c.Diferencia.ToString("N2")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+<style>
+    .campo { margin: 1rem 0; display: flex; flex-direction: column; gap: .25rem; }
+    .fila { display: flex; gap: .75rem; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; }
+    label { font-weight: 600; }
+    input, select { padding: .4rem; border: 1px solid #ccc; border-radius: 4px; }
+    button { padding: .5rem 1rem; background: #1f3864; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: default; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: .5rem .75rem; text-align: left; }
+    th { background: #f7f9fc; }
+    .con-diferencia { background: #fff3cd; }
+    .error { color: #a33; font-weight: 600; }
+    .ok { color: #2a7a2a; font-weight: 600; }
+    .ayuda { color: #666; }
+</style>
+
+@code {
+    private List<ProductoDto>? _productos;
+    private List<UbicacionDto>? _ubicaciones;
+    private List<ConteoDto>? _conteos;
+
+    private string _sesion = "";
+    private int _productoId;
+    private int _ubicacionId;
+    private int _numeroConteo = 1;
+    private decimal _cantidadContada;
+    private bool _guardando;
+    private string? _error;
+    private string? _ok;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _productos = await ProductoApi.ListarAsync();
+            _ubicaciones = await UbicacionApi.ListarAsync();
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+            _productos = [];
+            _ubicaciones = [];
+        }
+    }
+
+    private async Task CargarSesionAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_sesion)) { _conteos = null; return; }
+
+        try { _conteos = await ConteoApi.ListarPorSesionAsync(_sesion); }
+        catch (ApiException ex) { _error = ex.Message; _conteos = []; }
+    }
+
+    private async Task RegistrarAsync()
+    {
+        if (_guardando) return;
+        if (string.IsNullOrWhiteSpace(_sesion)) { _error = "Indicá la sesión de conteo."; return; }
+        if (_productoId <= 0) { _error = "Seleccioná un producto."; return; }
+        if (_ubicacionId <= 0) { _error = "Seleccioná una ubicación."; return; }
+
+        _guardando = true;
+        _error = null;
+        _ok = null;
+
+        try
+        {
+            await ConteoApi.RegistrarAsync(new RegistrarConteoDto(_sesion, _productoId, _ubicacionId, _numeroConteo, _cantidadContada));
+            _ok = "Conteo registrado.";
+            _cantidadContada = 0;
+            await CargarSesionAsync();
+        }
+        catch (ApiException ex) { _error = ex.Message; }
+        finally { _guardando = false; }
+    }
+}

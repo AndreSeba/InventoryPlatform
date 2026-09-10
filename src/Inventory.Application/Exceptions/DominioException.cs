@@ -1,0 +1,112 @@
+namespace Inventory.Application.Exceptions;
+
+// Excepción base para errores de negocio esperables (sección 12 de la propuesta):
+// el handler global las traduce a una respuesta HTTP clara con .Status propio,
+// nunca expone err.Message crudo de excepciones no controladas.
+public abstract class DominioException : Exception
+{
+    public abstract int Status { get; }
+
+    protected DominioException(string message) : base(message) { }
+}
+
+public class ProductoNoEncontradoException : DominioException
+{
+    public override int Status => 404;
+
+    public ProductoNoEncontradoException(int id)
+        : base($"No existe un producto activo con id {id}.") { }
+}
+
+public class CodigoProductoDuplicadoException : DominioException
+{
+    public override int Status => 409;
+
+    public CodigoProductoDuplicadoException(string codigo)
+        : base($"Ya existe un producto activo con el código '{codigo}'.") { }
+}
+
+public class StockInsuficienteException : DominioException
+{
+    public override int Status => 409;
+
+    public StockInsuficienteException(string codigoProducto, decimal existencia, decimal cantidadSolicitada)
+        : base($"Stock insuficiente para '{codigoProducto}': existencia {existencia}, se solicitó una salida de {cantidadSolicitada}.") { }
+}
+
+public class CategoriaNoEncontradaException : DominioException
+{
+    public override int Status => 404;
+
+    public CategoriaNoEncontradaException(int id)
+        : base($"No existe una categoría activa con id {id}.") { }
+}
+
+public class CodigoCategoriaDuplicadoException : DominioException
+{
+    public override int Status => 409;
+
+    public CodigoCategoriaDuplicadoException(string codigo)
+        : base($"Ya existe una categoría activa con el código '{codigo}'.") { }
+}
+
+public class CodigoAreaDuplicadoException : DominioException
+{
+    public override int Status => 409;
+
+    public CodigoAreaDuplicadoException(string codigo)
+        : base($"Ya existe un área activa con el código '{codigo}'.") { }
+}
+
+public class UbicacionInvalidaException : DominioException
+{
+    public override int Status => 400;
+
+    public UbicacionInvalidaException(string mensaje) : base(mensaje) { }
+}
+
+public class UbicacionNoEncontradaException : DominioException
+{
+    public override int Status => 404;
+
+    public UbicacionNoEncontradaException(int id)
+        : base($"No existe una ubicación activa con id {id}.") { }
+}
+
+public class UbicacionDuplicadaException : DominioException
+{
+    public override int Status => 409;
+
+    public UbicacionDuplicadaException(string codigo)
+        : base($"Ya existe una ubicación activa con el código '{codigo}'.") { }
+}
+
+public class MovimientoOrigenInvalidoException : DominioException
+{
+    public override int Status => 409;
+
+    public MovimientoOrigenInvalidoException(string mensaje) : base(mensaje) { }
+}
+
+public class SolicitudNoEncontradaException : DominioException
+{
+    public override int Status => 404;
+
+    public SolicitudNoEncontradaException(int id)
+        : base($"No existe una solicitud con id {id}.") { }
+}
+
+public class SolicitudEstadoInvalidoException : DominioException
+{
+    public override int Status => 409;
+
+    public SolicitudEstadoInvalidoException(string mensaje) : base(mensaje) { }
+}
+
+public class ConteoDuplicadoException : DominioException
+{
+    public override int Status => 409;
+
+    public ConteoDuplicadoException(string sesion, int numeroConteo)
+        : base($"Ya existe el conteo N.º {numeroConteo} de este producto/ubicación en la sesión '{sesion}'.") { }
+}

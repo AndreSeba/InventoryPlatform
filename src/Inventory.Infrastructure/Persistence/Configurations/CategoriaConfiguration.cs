@@ -1,0 +1,19 @@
+using Inventory.Domain.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
+namespace Inventory.Infrastructure.Persistence.Configurations;
+
+public class CategoriaConfiguration : IEntityTypeConfiguration<Categoria>
+{
+    public void Configure(EntityTypeBuilder<Categoria> builder)
+    {
+        builder.ToTable("Categoria");
+        builder.HasKey(c => c.Id);
+
+        builder.Property(c => c.CodigoCategoria).HasMaxLength(50).IsRequired();
+        builder.Property(c => c.Descripcion).HasMaxLength(255);
+
+        builder.HasIndex(c => c.CodigoCategoria).IsUnique().HasFilter("[Activo] = 1");
+    }
+}

@@ -1,0 +1,109 @@
+@page "/ubicaciones"
+@rendermode InteractiveServer
+@using Inventory.Domain.Enums
+@inject UbicacionApiClient UbicacionApi
+
+<PageTitle>Ubicaciones</PageTitle>
+
+<h1>Ubicaciones</h1>
+
+@if (_error is not null)
+{
+    <p class="error">@_error</p>
+}
+
+<div class="fila">
+    <div class="campo">
+        <label>Tipo</label>
+        <select @bind="_tipo">
+            <option value="@TipoUbicacion.Rack">RACK</option>
+            <option value="@TipoUbicacion.Mueble">MUEBLE</option>
+        </select>
+    </div>
+    <div class="campo">
+        <label>Nro</label>
+        <input @bind="_nro" placeholder="04" />
+    </div>
+    <div class="campo">
+        <label>Lado</label>
+        <input @bind="_lado" placeholder="A" />
+    </div>
+    @if (_tipo == TipoUbicacion.Rack)
+    {
+        <div class="campo">
+            <label>Nivel</label>
+            <input @bind="_nivel" placeholder="01" />
+        </div>
+    }
+    <button disabled="@_guardando" @onclick="CrearAsync">@(_guardando ? "Guardando…" : "Agregar")</button>
+</div>
+
+@if (_ubicaciones is null)
+{
+    <p>Cargando…</p>
+}
+else
+{
+    <table>
+        <thead><tr><th>Código</th><th>Tipo</th><th>Nro</th><th>Lado</th><th>Nivel</th></tr></thead>
+        <tbody>
+            @foreach (var u in _ubicaciones)
+            {
+                <tr>
+                    <td>@u.CodigoUbicacion</td>
+                    <td>@u.TipoUbicacion</td>
+                    <td>@u.Nro</td>
+                    <td>@u.Lado</td>
+                    <td>@(u.Nivel ?? "—")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+<style>
+    .fila { display: flex; gap: 1rem; align-items: flex-end; margin-bottom: 1.25rem; flex-wrap: wrap; }
+    .campo { display: flex; flex-direction: column; gap: .25rem; }
+    label { font-weight: 600; font-size: .85rem; }
+    input, select { padding: .4rem; border: 1px solid #ccc; border-radius: 4px; min-width: 100px; }
+    button { padding: .5rem 1rem; background: #1f3864; color: #fff; border: none; border-radius: 4px; cursor: pointer; height: fit-content; }
+    button:disabled { opacity: .6; cursor: default; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: .5rem .75rem; text-align: left; }
+    th { background: #f7f9fc; }
+    .error { color: #a33; font-weight: 600; }
+</style>
+
+@code {
+    private List<UbicacionDto>? _ubicaciones;
+    private TipoUbicacion _tipo = TipoUbicacion.Rack;
+    private string _nro = "";
+    private string _lado = "";
+    private string _nivel = "";
+    private bool _guardando;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync() => await CargarAsync();
+
+    private async Task CargarAsync()
+    {
+        try { _ubicaciones = await UbicacionApi.ListarAsync(); }
+        catch (ApiException ex) { _error = ex.Message; _ubicaciones = []; }
+    }
+
+    private async Task CrearAsync()
+    {
+        if (_guardando) return;
+        _guardando = true;
+        _error = null;
+        try
+        {
+            var nivel = _tipo == TipoUbicacion.Rack ? _nivel : null;
+            await UbicacionApi.CrearAsync(new CrearUbicacionDto(_tipo, _nro, _lado, nivel));
+            _nro = ""; _lado = ""; _nivel = "";
+            await CargarAsync();
+        }
+        catch (ApiException ex) { _error = ex.Message; }
+        finally { _guardando = false; }
+    }
+}
