@@ -1,11 +1,14 @@
 using Inventory.Application.Dtos;
 using Inventory.Application.Interfaces;
+using Inventory.Domain.Security;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Inventory.Api.Controllers;
 
 [ApiController]
 [Route("api/movimientos")]
+[Authorize]
 public class MovimientosController : ControllerBase
 {
     private readonly IMovimientoService _movimientoService;
@@ -16,6 +19,7 @@ public class MovimientosController : ControllerBase
     }
 
     [HttpGet]
+    [Authorize(Policy = Permisos.MovimientosVer)]
     [ProducesResponseType(typeof(IReadOnlyList<MovimientoDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<MovimientoDto>>> Listar(
         [FromQuery] DateTime? desde, [FromQuery] DateTime? hasta, CancellationToken ct)
@@ -25,6 +29,7 @@ public class MovimientosController : ControllerBase
     }
 
     [HttpGet("producto/{productoId:int}")]
+    [Authorize(Policy = Permisos.MovimientosVer)]
     [ProducesResponseType(typeof(IReadOnlyList<MovimientoDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<MovimientoDto>>> ListarPorProducto(int productoId, CancellationToken ct)
     {
@@ -34,6 +39,7 @@ public class MovimientosController : ControllerBase
 
     // Equivalente a vw_PrestamosPendientes de la guía v4.
     [HttpGet("prestamos-pendientes")]
+    [Authorize(Policy = Permisos.MovimientosVer)]
     [ProducesResponseType(typeof(IReadOnlyList<MovimientoDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<MovimientoDto>>> ListarPrestamosPendientes(CancellationToken ct)
     {
@@ -42,6 +48,7 @@ public class MovimientosController : ControllerBase
     }
 
     [HttpPost("entradas")]
+    [Authorize(Policy = Permisos.MovimientosEntrada)]
     [ProducesResponseType(typeof(MovimientoResultadoDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<MovimientoResultadoDto>> RegistrarEntrada([FromBody] RegistrarEntradaDto dto, CancellationToken ct)
@@ -51,6 +58,7 @@ public class MovimientosController : ControllerBase
     }
 
     [HttpPost("salidas")]
+    [Authorize(Policy = Permisos.MovimientosSalida)]
     [ProducesResponseType(typeof(MovimientoResultadoDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -61,6 +69,7 @@ public class MovimientosController : ControllerBase
     }
 
     [HttpPost("ajustes")]
+    [Authorize(Policy = Permisos.MovimientosAjuste)]
     [ProducesResponseType(typeof(MovimientoResultadoDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -71,6 +80,7 @@ public class MovimientosController : ControllerBase
     }
 
     [HttpPost("devoluciones")]
+    [Authorize(Policy = Permisos.MovimientosDevolucion)]
     [ProducesResponseType(typeof(MovimientoResultadoDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]

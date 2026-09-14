@@ -1,11 +1,14 @@
 using Inventory.Application.Dtos;
 using Inventory.Application.Interfaces;
+using Inventory.Domain.Security;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Inventory.Api.Controllers;
 
 [ApiController]
 [Route("api/productos")]
+[Authorize]
 public class ProductosController : ControllerBase
 {
     private readonly IProductoService _productoService;
@@ -16,6 +19,7 @@ public class ProductosController : ControllerBase
     }
 
     [HttpGet]
+    [Authorize(Policy = Permisos.ProductosVer)]
     [ProducesResponseType(typeof(IReadOnlyList<ProductoDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<ProductoDto>>> Listar(
         [FromQuery] int? categoriaId, [FromQuery] bool incluirInactivos, CancellationToken ct)
@@ -25,6 +29,7 @@ public class ProductosController : ControllerBase
     }
 
     [HttpGet("{id:int}")]
+    [Authorize(Policy = Permisos.ProductosVer)]
     [ProducesResponseType(typeof(ProductoDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ProductoDto>> ObtenerPorId(int id, CancellationToken ct)
@@ -34,6 +39,7 @@ public class ProductosController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Policy = Permisos.ProductosCrear)]
     [ProducesResponseType(typeof(ProductoDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<ProductoDto>> Crear([FromBody] CrearProductoDto dto, CancellationToken ct)
@@ -44,6 +50,7 @@ public class ProductosController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [Authorize(Policy = Permisos.ProductosEditar)]
     [ProducesResponseType(typeof(ProductoDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ProductoDto>> Actualizar(int id, [FromBody] ActualizarProductoDto dto, CancellationToken ct)
@@ -55,6 +62,7 @@ public class ProductosController : ControllerBase
 
     // Desactivación lógica (sección 8.1 de la propuesta) — nunca DELETE físico.
     [HttpDelete("{id:int}")]
+    [Authorize(Policy = Permisos.ProductosDesactivar)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Desactivar(int id, CancellationToken ct)
@@ -64,7 +72,5 @@ public class ProductosController : ControllerBase
         return NoContent();
     }
 
-    // TODO: reemplazar por el usuario autenticado real (JWT/claims) cuando
-    // se implemente la autenticación — ver sección 14 de la propuesta.
     private string UsuarioActual() => User.Identity?.Name ?? "sistema";
 }

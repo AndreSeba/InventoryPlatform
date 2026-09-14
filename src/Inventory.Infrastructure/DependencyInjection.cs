@@ -1,5 +1,6 @@
 using Inventory.Application.Interfaces;
 using Inventory.Infrastructure.Persistence;
+using Inventory.Infrastructure.Security;
 using Inventory.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -16,6 +17,13 @@ public static class DependencyInjection
 
         services.AddDbContext<InventoryDbContext>(options =>
             options.UseSqlServer(connectionString));
+
+        services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
+        services.AddSingleton<JwtTokenService>();
+
+        services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IUsuarioService, UsuarioService>();
+        services.AddScoped<IRolService, RolService>();
 
         services.AddScoped<ICategoriaService, CategoriaService>();
         services.AddScoped<IAreaService, AreaService>();

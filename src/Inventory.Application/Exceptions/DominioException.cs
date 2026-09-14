@@ -110,3 +110,52 @@ public class ConteoDuplicadoException : DominioException
     public ConteoDuplicadoException(string sesion, int numeroConteo)
         : base($"Ya existe el conteo N.º {numeroConteo} de este producto/ubicación en la sesión '{sesion}'.") { }
 }
+
+public class CredencialesInvalidasException : DominioException
+{
+    public override int Status => 401;
+
+    public CredencialesInvalidasException() : base("Email o contraseña incorrectos.") { }
+}
+
+public class UsuarioInactivoException : DominioException
+{
+    public override int Status => 403;
+
+    public UsuarioInactivoException() : base("Este usuario está desactivado. Contactá a un administrador.") { }
+}
+
+public class EmailDuplicadoException : DominioException
+{
+    public override int Status => 409;
+
+    public EmailDuplicadoException(string email) : base($"Ya existe un usuario con el email '{email}'.") { }
+}
+
+public class UsuarioNoEncontradoException : DominioException
+{
+    public override int Status => 404;
+
+    public UsuarioNoEncontradoException(int id) : base($"No existe un usuario con id {id}.") { }
+}
+
+public class RolNoEncontradoException : DominioException
+{
+    public override int Status => 404;
+
+    public RolNoEncontradoException(int id) : base($"No existe un rol activo con id {id}.") { }
+}
+
+public class NombreRolDuplicadoException : DominioException
+{
+    public override int Status => 409;
+
+    public NombreRolDuplicadoException(string nombre) : base($"Ya existe un rol activo con el nombre '{nombre}'.") { }
+}
+
+public class PermisoInvalidoException : DominioException
+{
+    public override int Status => 400;
+
+    public PermisoInvalidoException(string codigo) : base($"'{codigo}' no es un código de permiso válido.") { }
+}

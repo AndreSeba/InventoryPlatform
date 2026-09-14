@@ -17,6 +17,11 @@ public class InventoryDbContext : DbContext
     public DbSet<Conteo> Conteos => Set<Conteo>();
     public DbSet<Auditoria> Auditorias => Set<Auditoria>();
 
+    public DbSet<Usuario> Usuarios => Set<Usuario>();
+    public DbSet<Rol> Roles => Set<Rol>();
+    public DbSet<Permiso> Permisos => Set<Permiso>();
+    public DbSet<RolPermiso> RolPermisos => Set<RolPermiso>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(InventoryDbContext).Assembly);

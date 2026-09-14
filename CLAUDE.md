@@ -24,7 +24,7 @@ abajo antes de asumir que hay que tocar UI acá.
 | API | ASP.NET Core Web API — **arquitectura MVC con Controllers**, no Minimal API |
 | Acceso a datos | Entity Framework Core + SQL Server |
 | Documentación de API | OpenAPI nativo (`AddOpenApi`) + Scalar en `/scalar/v1` (solo Development) |
-| Auth | **No implementada todavía** — todo controller usa `User.Identity?.Name ?? "sistema"` como placeholder de usuario. No inventar un esquema de auth sin que el usuario lo pida. |
+| Auth | JWT bearer (bcrypt + `System.IdentityModel.Tokens.Jwt`) + autorización por permiso con policies dinámicas — ver "Autenticación y autorización" más abajo. |
 
 ## Arquitectura en capas (estricta)
 
@@ -117,6 +117,67 @@ Auditoria            → log genérico (UsuarioId, Entidad, EntidadId, Accion,
 - No hay campo de imagen múltiple por producto (`ImagenUrl` es una sola URL en `Producto`).
 - No hay `FechaVencimiento` en `Producto` — si hace falta control de vencimiento, es una decisión de producto a tomar explícitamente (una guía SharePoint de referencia lo tenía, se descartó al adaptar el modelo real).
 
+## Autenticación y autorización (agregado 2026-09-13, pedido explícito del usuario)
+
+```
+Usuario     → Id, Email (único entre activos), NombreCompleto, PasswordHash (BCrypt,
+              workFactor 12), RolId, Activo, CreadoEn, UltimoLoginEn
+Rol         → Id, Nombre (único entre activos), Descripcion, Activo
+Permiso     → Id, Codigo ("modulo.accion", ej. "productos.crear"), Modulo, Descripcion
+              # catálogo único en Inventory.Domain.Security.Permisos — agregar un
+              # permiso nuevo es agregarlo ahí + nada más (ver más abajo)
+RolPermiso  → RolId, PermisoId (M:N)
+```
+
+- **Login**: `POST /api/auth/login` (email+password) → `AuthService` valida con
+  `BCrypt.Net.BCrypt.Verify`, arma un JWT (`JwtTokenService`) con claims `sub`, `email`,
+  `name` (→ `User.Identity.Name`, por eso `UsuarioActual()` en los controllers no
+  necesitó cambiar), `role`, y un claim `"permiso"` repetido por cada código de permiso
+  del rol. Expira en `Jwt:ExpiracionMinutos` (480 = 8h, un turno laboral).
+- **Autorización por permiso, no por rol**: cada acción de cada Controller lleva
+  `[Authorize(Policy = Permisos.XxxYyy)]`, usando directo el código de permiso como
+  nombre de policy. Funciona sin registrar ~20 `AddPolicy` en `Program.cs` gracias a
+  `Inventory.Api.Security.PermissionPolicyProvider` (`IAuthorizationPolicyProvider`
+  custom): cualquier nombre de policy que no exista ya se resuelve al vuelo como un
+  `PermisoRequirement` que chequea `User.HasClaim("permiso", policyName)`.
+  **Agregar un permiso nuevo = agregarlo a `Permisos.Catalogo` (Domain) + usar
+  `[Authorize(Policy = Permisos.ElNuevo)]` donde corresponda — nunca hace falta tocar
+  `Program.cs`.**
+- **3 roles seedeados** (`RolPermisoConfiguration`, vía `HasData` — Ids 1/2/3 fijos):
+  - **Administrador**: los ~20 permisos del catálogo completo.
+  - **Operador**: ver+operar el día a día (productos.ver, movimientos.*, solicitudes.ver/
+    crear/entregar, conteos.*, categorias/areas/ubicaciones.ver) — **sin** aprobar/
+    rechazar solicitudes, sin gestionar catálogos ni usuarios.
+  - **Consulta**: solo los `.ver` de todos los módulos.
+  - RRHH puede crear roles nuevos con cualquier combinación desde `/roles` en el
+    frontend (`RolesController`, requiere `roles.gestionar`) — los 3 de arriba son el
+    punto de partida, no un techo.
+- **Usuario admin inicial**: `Inventory.Infrastructure.Seed.DatabaseSeeder.SeedAdminInicialAsync`,
+  llamado una vez al arrancar la API (`Program.cs`, con `try/catch` — si no hay base de
+  datos todavía, solo loguea un warning y la API sigue arrancando igual). Se salta si
+  `Usuarios` ya tiene alguna fila. Credenciales de arranque:
+  `admin@inventario.local` / `Cambiar123!` — **cambiarla en cuanto haya un despliegue
+  real**, es una contraseña de desarrollo a propósito.
+- **`Jwt:SecretKey` en `appsettings.json` es un secreto de desarrollo** (commiteado a
+  propósito, no hay gestor de secretos configurado todavía para este proyecto chico) —
+  rotarlo antes de cualquier despliegue con datos reales, igual que la contraseña de
+  arriba.
+- **`SolicitudesEntregar` es un permiso "conceptual" del lado del frontend**: la acción
+  de "Entregar" en `/solicitudes/{id}` en realidad llama a
+  `POST /api/movimientos/salidas` (con `SolicitudDetalleId`), no a un endpoint propio de
+  Solicitudes — el backend ya exige `movimientos.salida` para esa llamada. El frontend
+  gatea el botón con `solicitudes.entregar` además, para que un rol pueda ver/aprobar
+  solicitudes sin poder despachar stock si no tiene también permiso de movimientos. No es
+  un hueco de seguridad (el backend igual exige `movimientos.salida`), pero si se le da
+  `solicitudes.entregar` a un rol sin `movimientos.salida`, el botón se ve pero el POST
+  real falla con 403 — tenerlo en cuenta al armar roles custom desde `/roles`.
+- **Sin implementar todavía**: refresh token (el JWT expira a las 8h y no hay forma de
+  renovarlo sin volver a loguearse — aceptable para un turno de trabajo, no para dejar la
+  pestaña abierta de un día para el otro), cambio de contraseña propio (solo se puede
+  crear el usuario con una contraseña inicial desde `/usuarios`, no hay endpoint de
+  "cambiar mi contraseña" ni de reseteo), y 2FA. Ninguno se pidió explícitamente — no
+  construir sin que el usuario lo pida.
+
 ## Frontend
 
 Vive en `../InventoryPlatform.Web`, un repo Git **separado** (decisión
@@ -176,6 +237,8 @@ reconoce.
 | D4 | Sin `CargaRechazos` ni `ImagenesProductos` como entidades propias | Eran artefactos específicos de SharePoint (listas de log de importación e imágenes múltiples) sin equivalente real necesario en una base de datos relacional — `Producto.ImagenUrl` alcanza |
 | D5 | Frontend en repo separado (`InventoryPlatform.Web`) | Pedido explícito del usuario, para no sumar peso al backend |
 | D6 | `CategoriaService`/`AreaService`/`UbicacionService` sin editar/eliminar | Alcance del MVP — agregar solo si se pide explícitamente, y avisar al frontend cuando se agregue |
+| D7 | Autorización por permiso (policy dinámica = código de permiso), no solo por rol fijo | Pedido explícito del usuario ("usuario con roles y permisos") — con solo 2-3 roles hardcodeados (como el RBAC de controAsistencia) no se puede armar una combinación custom sin tocar código; con permisos + roles editables desde `/roles`, sí |
+| D8 | JWT en vez de cookie de sesión | El frontend y el backend son procesos/orígenes distintos (Blazor Server llama a la API por HTTP, no comparten el mismo dominio) — un JWT que el frontend guarda del lado del servidor (nunca en el navegador) y manda como Bearer es más simple acá que una cookie cross-origin |
 
 ## Lo que NO hacer
 
@@ -191,3 +254,13 @@ reconoce.
 - ❌ No agregues Editar/Eliminar a Categoría/Área/Ubicación sin que te lo
   pidan explícitamente (ver D6) — y si lo agregás, avisar que el frontend
   necesita actualizarse para usarlo.
+- ❌ No agregues un endpoint nuevo sin `[Authorize]` — todos los Controllers son
+  `[Authorize]` a nivel clase, con `[Authorize(Policy = Permisos.Xxx)]` por acción.
+  Si un endpoint necesita ser público, usar `[AllowAnonymous]` explícito (como
+  `AuthController.Login`), nunca "olvidar" el atributo.
+- ❌ No registres una policy nueva a mano en `Program.cs` para un permiso nuevo — agregalo
+  a `Inventory.Domain.Security.Permisos.Catalogo` y listo, `PermissionPolicyProvider` la
+  resuelve sola.
+- ❌ No commitees `Jwt:SecretKey` real ni cambies la contraseña admin de dev en el
+  `appsettings.json` — son valores de desarrollo a propósito, documentados como "cambiar
+  antes de un despliegue real", no secretos de producción.
