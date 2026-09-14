@@ -159,3 +159,10 @@ public class PermisoInvalidoException : DominioException
 
     public PermisoInvalidoException(string codigo) : base($"'{codigo}' no es un código de permiso válido.") { }
 }
+
+public class ArchivoInvalidoException : DominioException
+{
+    public override int Status => 400;
+
+    public ArchivoInvalidoException(string mensaje) : base(mensaje) { }
+}

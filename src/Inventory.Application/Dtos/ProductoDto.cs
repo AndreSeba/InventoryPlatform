@@ -36,3 +36,5 @@ public record ActualizarProductoDto(
     string? Detalle,
     string? ImagenUrl
 );
+
+public record ImagenSubidaDto(string Url);

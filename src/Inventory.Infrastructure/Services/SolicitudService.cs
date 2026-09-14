@@ -138,7 +138,9 @@ public class SolicitudService : ISolicitudService
         s.Id, s.NumeroSolicitud, s.AreaId, s.Area?.NombreArea ?? string.Empty, s.Estado,
         s.FechaSolicitud, s.SolicitadoPor, s.AprobadoPor, s.FechaResolucion, s.MotivoRechazo,
         s.Detalles.Select(d => new SolicitudDetalleDto(
-            d.Id, d.ProductoId, d.Producto?.Nombre ?? string.Empty, d.CantidadSolicitada, d.CantidadAprobada, d.CantidadEntregada
+            d.Id, d.ProductoId, d.Producto?.Nombre ?? string.Empty, d.Producto?.CodigoProducto ?? string.Empty,
+            d.Producto?.UnidadMedida ?? string.Empty, d.Producto?.CostoUnitario,
+            d.CantidadSolicitada, d.CantidadAprobada, d.CantidadEntregada
         )).ToList()
     );
 }

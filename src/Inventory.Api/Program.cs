@@ -1,12 +1,14 @@
 using System.Text;
 using Inventory.Api.Middleware;
 using Inventory.Api.Security;
+using Inventory.Api.Services;
 using Inventory.Infrastructure;
 using Inventory.Infrastructure.Security;
 using Inventory.Infrastructure.Seed;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
 
@@ -15,6 +17,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddSingleton<AlmacenamientoImagenesService>();
 
 builder.Services.AddExceptionHandler<ManejadorGlobalDeExcepciones>();
 builder.Services.AddProblemDetails();
@@ -71,6 +74,19 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// Imágenes subidas desde el gestor de archivos (ver AlmacenamientoImagenesService) —
+// carpeta propia fuera de wwwroot (este proyecto no tiene uno), servida en /uploads.
+// No requiere auth para LEER (son imágenes de producto, no datos sensibles); subir sí
+// la exige, eso lo gatea el endpoint de ProductosController, no este middleware.
+var carpetaUploads = Path.Combine(app.Environment.ContentRootPath, "uploads");
+Directory.CreateDirectory(carpetaUploads);
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(carpetaUploads),
+    RequestPath = "/uploads",
+});
+
 app.UseCors("BlazorWeb");
 app.UseAuthentication();
 app.UseAuthorization();

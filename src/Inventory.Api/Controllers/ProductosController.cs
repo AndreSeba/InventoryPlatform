@@ -1,3 +1,4 @@
+using Inventory.Api.Services;
 using Inventory.Application.Dtos;
 using Inventory.Application.Interfaces;
 using Inventory.Domain.Security;
@@ -12,10 +13,12 @@ namespace Inventory.Api.Controllers;
 public class ProductosController : ControllerBase
 {
     private readonly IProductoService _productoService;
+    private readonly AlmacenamientoImagenesService _almacenamiento;
 
-    public ProductosController(IProductoService productoService)
+    public ProductosController(IProductoService productoService, AlmacenamientoImagenesService almacenamiento)
     {
         _productoService = productoService;
+        _almacenamiento = almacenamiento;
     }
 
     [HttpGet]
@@ -58,6 +61,23 @@ public class ProductosController : ControllerBase
         var usuarioId = UsuarioActual();
         var actualizado = await _productoService.ActualizarAsync(id, dto, usuarioId, ct);
         return Ok(actualizado);
+    }
+
+    // Sin policy propia a propósito: la sube tanto quien está creando (ProductosCrear)
+    // como quien está editando (ProductosEditar) un producto existente — el endpoint en
+    // sí no persiste nada en Producto, solo deja el archivo listo para que el Crear/
+    // Actualizar de abajo (esos sí con su policy) lo guarde en ImagenUrl.
+    [HttpPost("imagen")]
+    [RequestSizeLimit(5_500_000)]
+    [ProducesResponseType(typeof(ImagenSubidaDto), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ImagenSubidaDto>> SubirImagen(IFormFile archivo, CancellationToken ct)
+    {
+        if (!User.HasClaim("permiso", Permisos.ProductosCrear) && !User.HasClaim("permiso", Permisos.ProductosEditar))
+            return Forbid();
+
+        var rutaRelativa = await _almacenamiento.GuardarImagenProductoAsync(archivo, ct);
+        var urlAbsoluta = $"{Request.Scheme}://{Request.Host}{rutaRelativa}";
+        return Ok(new ImagenSubidaDto(urlAbsoluta));
     }
 
     // Desactivación lógica (sección 8.1 de la propuesta) — nunca DELETE físico.

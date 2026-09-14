@@ -3,7 +3,7 @@ using Inventory.Domain.Enums;
 namespace Inventory.Application.Dtos;
 
 public record SolicitudDetalleDto(
-    int Id, int ProductoId, string ProductoNombre,
+    int Id, int ProductoId, string ProductoNombre, string ProductoCodigo, string UnidadMedida, decimal? CostoUnitario,
     decimal CantidadSolicitada, decimal? CantidadAprobada, decimal CantidadEntregada
 );
 
