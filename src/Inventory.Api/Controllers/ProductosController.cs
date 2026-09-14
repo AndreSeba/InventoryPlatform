@@ -92,5 +92,15 @@ public class ProductosController : ControllerBase
         return NoContent();
     }
 
+    [HttpGet("siguiente-codigo")]
+    [Authorize(Policy = Permisos.ProductosCrear)]
+    [ProducesResponseType(typeof(SiguienteCodigoDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<SiguienteCodigoDto>> ObtenerSiguienteCodigo([FromQuery] int categoriaId, CancellationToken ct)
+    {
+        var resultado = await _productoService.ObtenerSiguienteCodigoAsync(categoriaId, ct);
+        return Ok(resultado);
+    }
+
     private string UsuarioActual() => User.Identity?.Name ?? "sistema";
 }

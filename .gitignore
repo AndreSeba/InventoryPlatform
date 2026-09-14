@@ -489,3 +489,4 @@ CLAUDE.local.md
 # Imágenes de producto subidas por el usuario (AlmacenamientoImagenesService) — nunca
 # se commitean, se regeneran solas la primera vez que alguien sube una imagen.
 src/Inventory.Api/uploads/
+"CLAUDE.md" 

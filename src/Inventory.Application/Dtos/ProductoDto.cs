@@ -17,7 +17,7 @@ public record ProductoDto(
 );
 
 public record CrearProductoDto(
-    string CodigoProducto,
+    //string CodigoProducto,
     string Nombre,
     int CategoriaId,
     string UnidadMedida,
@@ -38,3 +38,4 @@ public record ActualizarProductoDto(
 );
 
 public record ImagenSubidaDto(string Url);
+public record SiguienteCodigoDto(string Codigo);
