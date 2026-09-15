@@ -37,4 +37,23 @@ public class AreaService : IAreaService
 
         return new AreaDto(area.Id, area.CodigoArea, area.NombreArea, area.Activo);
     }
+
+    public async Task<AreaDto> ActualizarAsync(int id, ActualizarAreaDto dto, CancellationToken ct)
+    {
+        var area = await _db.Areas.FirstOrDefaultAsync(a => a.Id == id, ct)
+            ?? throw new AreaNoEncontradaException(id);
+
+        var codigo = dto.CodigoArea.Trim().ToUpperInvariant();
+
+        var yaExiste = await _db.Areas.AnyAsync(a => a.CodigoArea == codigo && a.Activo && a.Id != id, ct);
+        if (yaExiste)
+            throw new CodigoAreaDuplicadoException(codigo);
+
+        area.CodigoArea = codigo;
+        area.NombreArea = dto.NombreArea;
+        area.Activo = dto.Activo;
+
+        await _db.SaveChangesAsync(ct);
+        return new AreaDto(area.Id, area.CodigoArea, area.NombreArea, area.Activo);
+    }
 }

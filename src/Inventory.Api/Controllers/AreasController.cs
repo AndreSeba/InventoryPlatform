@@ -29,4 +29,12 @@ public class AreasController : ControllerBase
         var creada = await _areaService.CrearAsync(dto, ct);
         return CreatedAtAction(nameof(Listar), creada);
     }
+
+    [HttpPut("{id:int}")]
+    [Authorize(Policy = Permisos.AreasEditar)]
+    [ProducesResponseType(typeof(AreaDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<AreaDto>> Actualizar(int id, [FromBody] ActualizarAreaDto dto, CancellationToken ct)
+        => Ok(await _areaService.ActualizarAsync(id, dto, ct));
 }

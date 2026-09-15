@@ -6,4 +6,5 @@ public interface ICategoriaService
 {
     Task<IReadOnlyList<CategoriaDto>> ListarAsync(bool incluirInactivas, CancellationToken ct);
     Task<CategoriaDto> CrearAsync(CrearCategoriaDto dto, CancellationToken ct);
+    Task<CategoriaDto> ActualizarAsync(int id, ActualizarCategoriaDto dto, CancellationToken ct);
 }

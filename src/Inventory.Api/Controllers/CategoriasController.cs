@@ -29,4 +29,12 @@ public class CategoriasController : ControllerBase
         var creada = await _categoriaService.CrearAsync(dto, ct);
         return CreatedAtAction(nameof(Listar), creada);
     }
+
+    [HttpPut("{id:int}")]
+    [Authorize(Policy = Permisos.CategoriasEditar)]
+    [ProducesResponseType(typeof(CategoriaDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<CategoriaDto>> Actualizar(int id, [FromBody] ActualizarCategoriaDto dto, CancellationToken ct)
+        => Ok(await _categoriaService.ActualizarAsync(id, dto, ct));
 }

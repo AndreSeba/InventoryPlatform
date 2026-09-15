@@ -113,9 +113,45 @@ Auditoria            → log genérico (UsuarioId, Entidad, EntidadId, Accion,
 
 ### Operaciones que el backend **no** expone todavía (a propósito, no un olvido)
 
-- `ICategoriaService`, `IAreaService`, `IUbicacionService`: solo `ListarAsync` + `CrearAsync`. **No hay Actualizar ni Eliminar.** El frontend lo sabe y no muestra esos botones — si se agrega la operación acá, avisar para que el frontend la use.
+- `IUbicacionService`: solo `ListarAsync` + `CrearAsync`. **No hay Actualizar ni Eliminar.**
+  El frontend lo sabe y no muestra esos botones — si se agrega la operación acá, avisar
+  para que el frontend la use. (`ICategoriaService`/`IAreaService` SÍ tienen `ActualizarAsync`
+  desde 2026-09-15 — ver más abajo, D6 quedó parcialmente reabierta.)
 - No hay campo de imagen múltiple por producto (`ImagenUrl` es una sola URL en `Producto`).
 - No hay `FechaVencimiento` en `Producto` — si hace falta control de vencimiento, es una decisión de producto a tomar explícitamente (una guía SharePoint de referencia lo tenía, se descartó al adaptar el modelo real).
+
+### Editar/eliminar Categoría y Área (agregado 2026-09-15, D6 reabierta parcialmente)
+
+`CategoriaService`/`AreaService` ahora tienen `ActualizarAsync(id, dto, ct)` — `dto` lleva
+`Activo`, así que **"eliminar" es este mismo endpoint con `Activo: false`**, no un DELETE
+real ni un endpoint aparte (a diferencia de `Producto`, que sí tiene un `DesactivarAsync`
+propio porque su form de edición no expone `Activo`). Nunca se borra la fila — todas las FK
+del proyecto son `DeleteBehavior.Restrict`, así que una categoría/área con productos o
+solicitudes históricas tiene que poder seguir existiendo aunque esté inactiva.
+Permisos nuevos: `Permisos.CategoriasEditar`/`AreasEditar`, agregados **al final** del
+`Catalogo` (Id 25/26) — a propósito, insertarlos entre los `Ver`/`Crear` existentes habría
+corrido el Id de todo lo que viene después y roto el seed contra una base ya migrada (ver
+el comentario en `Permisos.cs`). Si se agrega un permiso nuevo alguna vez, agregarlo
+siempre al final del array, nunca intercalado.
+`IUbicacionService` sigue sin Editar/Eliminar — no se pidió, y su regla de "tipo" (Rack
+exige Nivel, Mueble no) es más compleja que un simple toggle de `Activo` (ver "Más tipos de
+Ubicación" abajo).
+
+### Más tipos de Ubicación además de Rack/Mueble (consultado 2026-09-14, no implementado)
+
+> El usuario preguntó si valía la pena poder agregar más tipos de ubicación a futuro.
+> **Recomendación dada: no, no de forma especulativa** — sin un tercer tipo concreto no hay
+> nada que implementar. Se le explicó por qué no es un cambio chico, por si lo retoma.
+
+`TipoUbicacion` está hardcodeado con lógica propia por tipo en 3 lugares: el CHECK
+`CK_Ubicacion_Nivel` (Rack exige `Nivel`, Mueble no lo lleva), `UbicacionService.CrearAsync`
+(formato de `CodigoUbicacion` distinto por tipo: `Lado-Nro-Nivel` vs `M{Nro}-{Lado}`), y el
+toggle de 2 opciones del frontend. Agregar un tipo nuevo no es "sumar un valor al enum" —
+cada tipo necesita su propia regla de negocio (¿exige Nivel? ¿qué otro dato lleva? ¿cuál es
+su formato de código?), que solo el usuario puede definir. Si en algún momento aparece un
+tipo concreto, el camino correcto es convertir `TipoUbicacion` en una tabla configurable
+(mismo patrón que `Categoria`/`Area`, que dejaron de ser catálogos fijos) — no agregarlo al
+enum con un `if` más.
 
 ## Autenticación y autorización (agregado 2026-09-13, pedido explícito del usuario)
 
@@ -178,6 +214,42 @@ RolPermiso  → RolId, PermisoId (M:N)
   "cambiar mi contraseña" ni de reseteo), y 2FA. Ninguno se pidió explícitamente — no
   construir sin que el usuario lo pida.
 
+## Pendiente: notificaciones por correo en Solicitudes (pedido 2026-09-14, sin implementar)
+
+> El usuario pidió que el módulo de Solicitudes mande correos en 3 momentos. Se le explicó
+> el diseño en el chat, pero **no se escribió ningún código todavía** — quedan varias
+> decisiones suyas abiertas antes de poder implementarlo. No asumir un proveedor de correo
+> ni un destinatario por defecto sin que las responda.
+
+**Los 3 disparadores** (se enganchan en `SolicitudService`, justo después de que cada
+operación se confirma en la base):
+- `CrearAsync` → correo de "nueva solicitud" a quien tiene que aprobar.
+- `AprobarAsync` → correo al solicitante con el formato de la solicitud (la misma tabla
+  Código/Descripción/Cantidad/UME/Costo del formulario imprimible del frontend) + la fecha
+  en que se van a enviar los productos.
+- `RechazarAsync` → correo al solicitante con el motivo de rechazo.
+
+**Falta un campo en el modelo:** `Solicitud` no tiene ninguna fecha de envío/entrega
+estimada hoy (`FechaResolucion` es cuándo se aprobó/rechazó, no cuándo llega la
+mercadería). Hace falta agregar algo como `Solicitud.FechaEnvioEstimada` (date, nullable),
+cargado en el momento de aprobar — el formulario de "Aprobar solicitud" del frontend
+necesita un campo de fecha nuevo al lado de las cantidades, que viaje en
+`AprobarSolicitudDto`. Sin este campo no hay ninguna fecha real que mandar en el correo.
+
+**Decisiones del usuario, todavía sin responder:**
+1. **Proveedor de correo** — SMTP (Gmail/Outlook con contraseña de aplicación) vs. una API
+   transaccional (Resend/Brevo/Mailgun/SendGrid). Para .NET, la librería a usar es
+   **MailKit** (no `System.Net.Mail`, obsoleta), funciona con SMTP genérico o el modo SMTP
+   de cualquiera de las APIs. Las credenciales van en `appsettings` + `dotnet user-secrets`
+   en dev, nunca hardcodeadas ni commiteadas — mismo patrón que `Jwt:SecretKey`.
+2. **Destinatario del correo de "nueva solicitud"** — hoy no hay ningún concepto de "a
+   quién le llega esto". Opciones: un email fijo en configuración, o el email de todos los
+   `Usuario` con el permiso `SolicitudesAprobar` (ya existen en la base, no hace falta
+   agregar nada para esa segunda opción).
+3. **Formato del correo de aprobación** — la tabla en el cuerpo del correo en HTML (simple,
+   reusa el mismo layout del formulario imprimible) vs. un PDF real adjunto (más prolijo,
+   pero suma una librería de generación de PDF, ej. QuestPDF — más trabajo).
+
 ## Frontend
 
 Vive en `../InventoryPlatform.Web`, un repo Git **separado** (decisión
@@ -236,7 +308,7 @@ reconoce.
 | D3 | `Ubicacion` obligatoria en los 4 tipos de movimiento, incluidos los ajustes | La guía SharePoint original (v3) solo la exigía en Entrada/Salida; la v4 la generalizó a los 4 tipos — se siguió la v4 |
 | D4 | Sin `CargaRechazos` ni `ImagenesProductos` como entidades propias | Eran artefactos específicos de SharePoint (listas de log de importación e imágenes múltiples) sin equivalente real necesario en una base de datos relacional — `Producto.ImagenUrl` alcanza |
 | D5 | Frontend en repo separado (`InventoryPlatform.Web`) | Pedido explícito del usuario, para no sumar peso al backend |
-| D6 | `CategoriaService`/`AreaService`/`UbicacionService` sin editar/eliminar | Alcance del MVP — agregar solo si se pide explícitamente, y avisar al frontend cuando se agregue |
+| D6 | `CategoriaService`/`AreaService`/`UbicacionService` sin editar/eliminar | Alcance del MVP — agregar solo si se pide explícitamente, y avisar al frontend cuando se agregue. **Reabierta parcialmente 2026-09-15**: se pidió explícitamente para Categoría y Área, ya implementado (ver "Editar/eliminar Categoría y Área" arriba) — `UbicacionService` sigue sin pedirse, sigue sin Editar/Eliminar |
 | D7 | Autorización por permiso (policy dinámica = código de permiso), no solo por rol fijo | Pedido explícito del usuario ("usuario con roles y permisos") — con solo 2-3 roles hardcodeados (como el RBAC de controAsistencia) no se puede armar una combinación custom sin tocar código; con permisos + roles editables desde `/roles`, sí |
 | D8 | JWT en vez de cookie de sesión | El frontend y el backend son procesos/orígenes distintos (Blazor Server llama a la API por HTTP, no comparten el mismo dominio) — un JWT que el frontend guarda del lado del servidor (nunca en el navegador) y manda como Bearer es más simple acá que una cookie cross-origin |
 

@@ -58,6 +58,13 @@ public class CodigoAreaDuplicadoException : DominioException
         : base($"Ya existe un área activa con el código '{codigo}'.") { }
 }
 
+public class AreaNoEncontradaException : DominioException
+{
+    public override int Status => 404;
+
+    public AreaNoEncontradaException(int id) : base($"No existe un área con id {id}.") { }
+}
+
 public class UbicacionInvalidaException : DominioException
 {
     public override int Status => 400;

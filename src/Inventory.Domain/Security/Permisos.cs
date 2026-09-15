@@ -39,6 +39,9 @@ public static class Permisos
     public const string UsuariosGestionar = "usuarios.gestionar";
     public const string RolesGestionar = "roles.gestionar";
 
+    public const string CategoriasEditar = "categorias.editar";
+    public const string AreasEditar = "areas.editar";
+
     public static readonly IReadOnlyList<(string Codigo, string Modulo, string Descripcion)> Catalogo =
     [
         (ProductosVer, "Productos", "Ver el catálogo de productos y su existencia"),
@@ -72,5 +75,12 @@ public static class Permisos
 
         (UsuariosGestionar, "Administración", "Crear y editar usuarios"),
         (RolesGestionar, "Administración", "Crear roles y asignarles permisos"),
+
+        // Agregados 2026-09-14 al final a propósito (no intercalados con Ver/Crear de
+        // arriba) — el seed de Permiso/RolPermiso usa la POSICIÓN en este array como Id
+        // fijo (ver PermisoConfiguration), insertar en el medio desplazaría los Id de
+        // todo lo que viene después y rompería el mapeo contra una base ya sembrada.
+        (CategoriasEditar, "Categorías", "Editar categorías existentes"),
+        (AreasEditar, "Áreas", "Editar áreas existentes"),
     ];
 }

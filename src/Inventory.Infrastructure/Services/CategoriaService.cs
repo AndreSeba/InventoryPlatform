@@ -37,4 +37,23 @@ public class CategoriaService : ICategoriaService
 
         return new CategoriaDto(categoria.Id, categoria.CodigoCategoria, categoria.Descripcion, categoria.Activo);
     }
+
+    public async Task<CategoriaDto> ActualizarAsync(int id, ActualizarCategoriaDto dto, CancellationToken ct)
+    {
+        var categoria = await _db.Categorias.FirstOrDefaultAsync(c => c.Id == id, ct)
+            ?? throw new CategoriaNoEncontradaException(id);
+
+        var codigo = dto.CodigoCategoria.Trim().ToUpperInvariant();
+
+        var yaExiste = await _db.Categorias.AnyAsync(c => c.CodigoCategoria == codigo && c.Activo && c.Id != id, ct);
+        if (yaExiste)
+            throw new CodigoCategoriaDuplicadoException(codigo);
+
+        categoria.CodigoCategoria = codigo;
+        categoria.Descripcion = dto.Descripcion;
+        categoria.Activo = dto.Activo;
+
+        await _db.SaveChangesAsync(ct);
+        return new CategoriaDto(categoria.Id, categoria.CodigoCategoria, categoria.Descripcion, categoria.Activo);
+    }
 }
