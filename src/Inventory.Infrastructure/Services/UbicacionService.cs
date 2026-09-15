@@ -41,7 +41,7 @@ public class UbicacionService : IUbicacionService
         // Equivalente al flujo "INV Generar codigo ubicacion" de la guía v4.
         var codigo = dto.TipoUbicacion == TipoUbicacion.Rack
             ? $"{lado}-{nro}-{nivel}"
-            : $"M{nro}-{lado}";
+            : $"M-{nro}-{lado}";
 
         var yaExiste = await _db.Ubicaciones.AnyAsync(u => u.CodigoUbicacion == codigo && u.Activo, ct);
         if (yaExiste)

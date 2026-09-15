@@ -13,7 +13,7 @@ public class Ubicacion
     public string? Nivel { get; set; }
 
     // Generado por el servicio al crear/editar (equivalente al flujo "INV Generar
-    // codigo ubicacion" de Power Automate): RACK -> Lado-Nro-Nivel, MUEBLE -> M{Nro}-{Lado}.
+    // codigo ubicacion" de Power Automate): RACK -> Lado-Nro-Nivel, MUEBLE -> M-{Nro}-{Lado}.
     public string CodigoUbicacion { get; set; } = string.Empty;
 
     public bool Activo { get; set; } = true;
