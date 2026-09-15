@@ -47,6 +47,15 @@ public class MovimientosController : ControllerBase
         return Ok(prestamos);
     }
 
+    [HttpPost("hoja")]
+    [Authorize(Policy = Permisos.MovimientosVer)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> GenerarExcel([FromBody] GenerarMovimientosExcelDto dto, CancellationToken ct)
+    {
+        var (contenido, nombreArchivo) = await _movimientoService.GenerarExcelAsync(dto, ct);
+        return File(contenido, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", nombreArchivo);
+    }
+
     [HttpPost("entradas")]
     [Authorize(Policy = Permisos.MovimientosEntrada)]
     [ProducesResponseType(typeof(MovimientoResultadoDto), StatusCodes.Status201Created)]

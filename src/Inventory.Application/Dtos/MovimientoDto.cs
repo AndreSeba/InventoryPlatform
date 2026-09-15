@@ -39,3 +39,5 @@ public record RegistrarAjusteDto(int ProductoId, int UbicacionId, decimal Cantid
 public record RegistrarDevolucionDto(int MovimientoOrigenId, int UbicacionId, decimal Cantidad, string? Motivo);
 
 public record MovimientoResultadoDto(int MovimientoId, string NumeroMovimiento, string Estado, DateTime FechaMovimiento, decimal ExistenciaResultante);
+
+public record GenerarMovimientosExcelDto(TipoMovimiento? Tipo, int? CategoriaId);
