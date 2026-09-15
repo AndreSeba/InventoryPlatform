@@ -1,4 +1,3 @@
-using Inventory.Api.Services;
 using Inventory.Application.Dtos;
 using Inventory.Application.Interfaces;
 using Inventory.Domain.Security;
@@ -13,12 +12,10 @@ namespace Inventory.Api.Controllers;
 public class ProductosController : ControllerBase
 {
     private readonly IProductoService _productoService;
-    private readonly AlmacenamientoImagenesService _almacenamiento;
 
-    public ProductosController(IProductoService productoService, AlmacenamientoImagenesService almacenamiento)
+    public ProductosController(IProductoService productoService)
     {
         _productoService = productoService;
-        _almacenamiento = almacenamiento;
     }
 
     [HttpGet]
@@ -43,6 +40,9 @@ public class ProductosController : ControllerBase
 
     [HttpPost]
     [Authorize(Policy = Permisos.ProductosCrear)]
+    // La imagen viaja en el mismo body como base64 (no en un upload aparte) — ~6.7MB para
+    // 5MB de imagen real, por la sobrecarga de base64 + el resto del JSON.
+    [RequestSizeLimit(8_000_000)]
     [ProducesResponseType(typeof(ProductoDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<ProductoDto>> Crear([FromBody] CrearProductoDto dto, CancellationToken ct)
@@ -54,6 +54,7 @@ public class ProductosController : ControllerBase
 
     [HttpPut("{id:int}")]
     [Authorize(Policy = Permisos.ProductosEditar)]
+    [RequestSizeLimit(8_000_000)]
     [ProducesResponseType(typeof(ProductoDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ProductoDto>> Actualizar(int id, [FromBody] ActualizarProductoDto dto, CancellationToken ct)
@@ -63,21 +64,17 @@ public class ProductosController : ControllerBase
         return Ok(actualizado);
     }
 
-    // Sin policy propia a propósito: la sube tanto quien está creando (ProductosCrear)
-    // como quien está editando (ProductosEditar) un producto existente — el endpoint en
-    // sí no persiste nada en Producto, solo deja el archivo listo para que el Crear/
-    // Actualizar de abajo (esos sí con su policy) lo guarde en ImagenUrl.
-    [HttpPost("imagen")]
-    [RequestSizeLimit(5_500_000)]
-    [ProducesResponseType(typeof(ImagenSubidaDto), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ImagenSubidaDto>> SubirImagen(IFormFile archivo, CancellationToken ct)
+    // Sin [Authorize] a propósito: esto se referencia desde un <img src="..."> / CSS
+    // background-image del navegador, que nunca manda el header Authorization con el
+    // Bearer token — igual que la carpeta /uploads estática que reemplaza. La imagen en sí
+    // no es un dato sensible (son fotos de material promocional), así que este es el mismo
+    // nivel de exposición que ya tenía el archivo servido por disco.
+    [HttpGet("{id:int}/imagen")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ObtenerImagen(int id, CancellationToken ct)
     {
-        if (!User.HasClaim("permiso", Permisos.ProductosCrear) && !User.HasClaim("permiso", Permisos.ProductosEditar))
-            return Forbid();
-
-        var rutaRelativa = await _almacenamiento.GuardarImagenProductoAsync(archivo, ct);
-        var urlAbsoluta = $"{Request.Scheme}://{Request.Host}{rutaRelativa}";
-        return Ok(new ImagenSubidaDto(urlAbsoluta));
+        var (datos, contentType) = await _productoService.ObtenerImagenAsync(id, ct);
+        return File(datos, contentType);
     }
 
     // Desactivación lógica (sección 8.1 de la propuesta) — nunca DELETE físico.

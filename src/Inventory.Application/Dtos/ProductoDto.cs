@@ -11,6 +11,9 @@ public record ProductoDto(
     decimal? CostoUnitario,
     decimal StockMinimo,
     string? Detalle,
+    // Ruta RELATIVA (no absoluta) calculada al vuelo — "/api/productos/{id}/imagen" si
+    // el producto tiene ImagenData, si no null. El frontend le antepone su ApiBaseUrl al
+    // renderizar (ver ProductoApiClient.ApiBaseUrl) — nunca queda una URL vieja grabada.
     string? ImagenUrl,
     bool Activo,
     decimal Existencia
@@ -24,7 +27,8 @@ public record CrearProductoDto(
     decimal? CostoUnitario,
     decimal StockMinimo,
     string? Detalle,
-    string? ImagenUrl
+    byte[]? ImagenData,
+    string? ImagenContentType
 );
 
 public record ActualizarProductoDto(
@@ -34,8 +38,10 @@ public record ActualizarProductoDto(
     decimal? CostoUnitario,
     decimal StockMinimo,
     string? Detalle,
-    string? ImagenUrl
+    // ImagenData null = "no tocar la imagen actual" (así no hay que reenviar los bytes
+    // ya guardados solo porque se editó el nombre). Mandar bytes reales = reemplazarla.
+    byte[]? ImagenData,
+    string? ImagenContentType
 );
 
-public record ImagenSubidaDto(string Url);
 public record SiguienteCodigoDto(string Codigo);

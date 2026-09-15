@@ -61,6 +61,8 @@ public class ProductoService : IProductoService
         if (yaExiste)
             throw new CodigoProductoDuplicadoException(clave);
 
+        ValidarImagen(dto.ImagenData, dto.ImagenContentType);
+
         var producto = new Producto
         {
             ClaveProducto = clave,
@@ -71,7 +73,8 @@ public class ProductoService : IProductoService
             CostoUnitario = dto.CostoUnitario,
             StockMinimo = dto.StockMinimo,
             Detalle = dto.Detalle,
-            ImagenUrl = dto.ImagenUrl,
+            ImagenData = dto.ImagenData,
+            ImagenContentType = dto.ImagenData is not null ? dto.ImagenContentType : null,
             Activo = true,
         };
 
@@ -108,7 +111,7 @@ public class ProductoService : IProductoService
             producto.CostoUnitario,
             producto.StockMinimo,
             producto.Detalle,
-            producto.ImagenUrl,
+            TeniaImagen = producto.ImagenData is not null,
         });
 
         producto.Nombre = dto.Nombre;
@@ -117,7 +120,15 @@ public class ProductoService : IProductoService
         producto.CostoUnitario = dto.CostoUnitario;
         producto.StockMinimo = dto.StockMinimo;
         producto.Detalle = dto.Detalle;
-        producto.ImagenUrl = dto.ImagenUrl;
+
+        // null = "no tocar la imagen actual" — evita reenviar los bytes ya guardados
+        // solo porque se editó otro campo del producto (ver comentario en el DTO).
+        if (dto.ImagenData is not null)
+        {
+            ValidarImagen(dto.ImagenData, dto.ImagenContentType);
+            producto.ImagenData = dto.ImagenData;
+            producto.ImagenContentType = dto.ImagenContentType;
+        }
 
         _db.Auditorias.Add(new Auditoria
         {
@@ -151,6 +162,18 @@ public class ProductoService : IProductoService
         });
 
         await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task<(byte[] Datos, string ContentType)> ObtenerImagenAsync(int id, CancellationToken ct)
+    {
+        var producto = await _db.Productos.AsNoTracking()
+            .Select(p => new { p.Id, p.ImagenData, p.ImagenContentType })
+            .FirstOrDefaultAsync(p => p.Id == id, ct);
+
+        if (producto?.ImagenData is null)
+            throw new ProductoNoEncontradoException(id);
+
+        return (producto.ImagenData, producto.ImagenContentType ?? "application/octet-stream");
     }
 
     // CERE-01: primeras 4 letras del código de categoría + correlativo de 2 dígitos.
@@ -191,10 +214,32 @@ public class ProductoService : IProductoService
         ).ToList();
     }
 
+    private static readonly HashSet<string> TiposImagenPermitidos =
+        new(StringComparer.OrdinalIgnoreCase) { "image/jpeg", "image/png", "image/webp" };
+
+    private const long TamanoMaximoImagenBytes = 5 * 1024 * 1024; // 5 MB
+
+    // Antes vivía en AlmacenamientoImagenesService (disco) — misma regla, ahora corre acá
+    // porque la imagen ya no pasa por un endpoint de upload aparte, viaja en el mismo
+    // Crear/Actualizar.
+    private static void ValidarImagen(byte[]? datos, string? contentType)
+    {
+        if (datos is null) return;
+
+        if (datos.Length == 0)
+            throw new ArchivoInvalidoException("El archivo está vacío.");
+        if (datos.Length > TamanoMaximoImagenBytes)
+            throw new ArchivoInvalidoException("La imagen no puede superar los 5 MB.");
+        if (contentType is null || !TiposImagenPermitidos.Contains(contentType))
+            throw new ArchivoInvalidoException("Formato no permitido. Usá JPG, PNG o WEBP.");
+    }
+
     private static ProductoDto AProductoDto(Producto p, decimal existencia) => AProductoDto(p, p.Categoria!, existencia);
 
     private static ProductoDto AProductoDto(Producto p, Categoria categoria, decimal existencia) => new(
         p.Id, p.ClaveProducto, p.CodigoProducto, p.Nombre, p.CategoriaId, categoria.CodigoCategoria,
-        p.UnidadMedida, p.CostoUnitario, p.StockMinimo, p.Detalle, p.ImagenUrl, p.Activo, existencia
+        p.UnidadMedida, p.CostoUnitario, p.StockMinimo, p.Detalle,
+        p.ImagenData is not null ? $"/api/productos/{p.Id}/imagen" : null,
+        p.Activo, existencia
     );
 }

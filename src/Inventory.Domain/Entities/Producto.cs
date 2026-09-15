@@ -14,7 +14,13 @@ public class Producto
     public decimal? CostoUnitario { get; set; }
     public decimal StockMinimo { get; set; }
     public string? Detalle { get; set; }
-    public string? ImagenUrl { get; set; }
+
+    // Guardada en la fila, no en disco — evita que la imagen dependa de un archivo que
+    // solo existe en la máquina donde se subió (ver AlmacenamientoImagenesService, ya no
+    // existe). Se sirve vía GET /api/productos/{id}/imagen, nunca se expone cruda.
+    public byte[]? ImagenData { get; set; }
+    public string? ImagenContentType { get; set; }
+
     public bool Activo { get; set; } = true;
 
     public ICollection<Movimiento> Movimientos { get; set; } = new List<Movimiento>();

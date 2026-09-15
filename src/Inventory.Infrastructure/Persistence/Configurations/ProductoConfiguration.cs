@@ -18,7 +18,11 @@ public class ProductoConfiguration : IEntityTypeConfiguration<Producto>
         builder.Property(p => p.CostoUnitario).HasColumnType("decimal(18,2)");
         builder.Property(p => p.StockMinimo).HasColumnType("decimal(18,3)");
         builder.Property(p => p.Detalle).HasMaxLength(2000);
-        builder.Property(p => p.ImagenUrl).HasMaxLength(500);
+        // Sin HasColumnType acá a propósito: EF ya mapea byte[] al tipo binario correcto
+        // por proveedor (varbinary(max) en SQL Server, BLOB en SQLite) sin que haga falta
+        // forzarlo — forzar "varbinary(max)" rompía los tests, que corren contra SQLite
+        // en memoria y no entienden esa sintaxis (SQLite Error 1: 'near "max"').
+        builder.Property(p => p.ImagenContentType).HasMaxLength(100);
 
         builder.HasOne(p => p.Categoria)
             .WithMany()
