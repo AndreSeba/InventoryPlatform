@@ -31,5 +31,31 @@ public class ConteosController : ControllerBase
         return CreatedAtAction(nameof(ListarPorSesion), new { sesionConteo = creado.SesionConteo }, creado);
     }
 
+    [HttpPost("hoja")]
+    [Authorize(Policy = Permisos.ConteosRegistrar)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GenerarHoja([FromBody] GenerarHojaConteoDto dto, CancellationToken ct)
+    {
+        var (contenido, nombreArchivo, _) = await _conteoService.GenerarHojaConteoAsync(dto, ct);
+        return File(contenido, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", nombreArchivo);
+    }
+
+    [HttpPost("importar")]
+    [Authorize(Policy = Permisos.ConteosRegistrar)]
+    [RequestSizeLimit(10_000_000)]
+    [ProducesResponseType(typeof(ImportarHojaConteoResultadoDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ImportarHojaConteoResultadoDto>> ImportarHoja(IFormFile archivo, CancellationToken ct)
+    {
+        if (archivo is null || archivo.Length == 0)
+            return BadRequest(new ProblemDetails { Detail = "Subí el archivo de la hoja de conteo." });
+
+        await using var stream = archivo.OpenReadStream();
+        var resultado = await _conteoService.ImportarHojaConteoAsync(stream, UsuarioActual(), ct);
+        return Ok(resultado);
+    }
+
     private string UsuarioActual() => User.Identity?.Name ?? "sistema";
 }
