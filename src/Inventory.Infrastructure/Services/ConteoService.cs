@@ -202,7 +202,7 @@ public class ConteoService : IConteoService
         hoja.Range(FilaEncabezado + 1, ColumnasExcel, ultimaFila, ColumnasExcel).Style.Fill.BackgroundColor = XLColor.FromHtml("#F8FAFC");
 
         // Sin cuadrícula: ni en pantalla ni al imprimir.
-        hoja.SheetView.ShowGridLines = false;
+        hoja.ShowGridLines = false;
         hoja.PageSetup.ShowGridlines = false;
 
         hoja.SheetView.FreezeRows(FilaEncabezado);
@@ -213,8 +213,10 @@ public class ConteoService : IConteoService
         // El encabezado se repite en cada página impresa: sin esto, de la hoja 2 en
         // adelante no se sabe qué columna es cuál.
         hoja.PageSetup.SetRowsToRepeatAtTop(FilaEncabezado, FilaEncabezado);
-        hoja.PageSetup.Footer.Right.AddText("Página ").AddText(XLHFPredefinedText.PageNumber)
-            .AddText(" de ").AddText(XLHFPredefinedText.NumberOfPages);
+        hoja.PageSetup.Footer.Right.AddText("Página ", XLHFOccurrence.AllPages)
+            .AddText(XLHFPredefinedText.PageNumber, XLHFOccurrence.AllPages)
+            .AddText(" de ", XLHFOccurrence.AllPages)
+            .AddText(XLHFPredefinedText.NumberOfPages, XLHFOccurrence.AllPages);
 
         using var stream = new MemoryStream();
         libro.SaveAs(stream);
