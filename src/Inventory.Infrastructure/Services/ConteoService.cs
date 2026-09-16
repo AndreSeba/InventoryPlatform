@@ -99,15 +99,31 @@ public class ConteoService : IConteoService
         var ubicacion = await _db.Ubicaciones.FirstOrDefaultAsync(u => u.Id == dto.UbicacionId && u.Activo, ct)
             ?? throw new UbicacionNoEncontradaException(dto.UbicacionId);
 
-        var query = _db.Productos.AsNoTracking().Where(p => p.Activo);
-        if (dto.ProductoIds is { Count: > 0 })
-            query = query.Where(p => dto.ProductoIds.Contains(p.Id));
-        else if (dto.CategoriaId is not null)
-            query = query.Where(p => p.CategoriaId == dto.CategoriaId);
+        // La hoja se arma SIEMPRE sobre productos elegidos uno por uno. Antes, si no
+        // venía selección, caía a "todos los productos activos" (o a una categoría
+        // entera), que es justo lo que no se quiere: un conteo físico se hace sobre un
+        // conjunto acotado, y una hoja con el catálogo completo es inmanejable en papel.
+        if (dto.ProductoIds is not { Count: > 0 })
+            throw new SeleccionDeProductosVaciaException();
 
-        var productos = await query.OrderBy(p => p.Nombre).ToListAsync(ct);
+        var idsPedidos = dto.ProductoIds.Distinct().ToList();
+
+        var productos = await _db.Productos.AsNoTracking()
+            .Where(p => p.Activo && idsPedidos.Contains(p.Id))
+            .OrderBy(p => p.Nombre)
+            .ToListAsync(ct);
+
         if (productos.Count == 0)
-            throw new ArchivoInvalidoException("No hay productos activos para generar la hoja de conteo con ese filtro.");
+            throw new ArchivoInvalidoException("Ninguno de los productos seleccionados está activo.");
+
+        // Si alguno de los ids pedidos no existe o está inactivo, avisar en vez de
+        // generar en silencio una hoja más corta que lo que el usuario eligió.
+        if (productos.Count != idsPedidos.Count)
+        {
+            var faltantes = idsPedidos.Except(productos.Select(p => p.Id)).ToList();
+            throw new ArchivoInvalidoException(
+                $"No se puede generar la hoja: {faltantes.Count} de los productos seleccionados ya no existen o están inactivos.");
+        }
 
         var productoIds = productos.Select(p => p.Id).ToList();
         var existencias = await _db.Movimientos
@@ -144,8 +160,12 @@ public class ConteoService : IConteoService
         hoja.Cell(FilaEncabezado, 6).Value = "Cantidad Contada";
         var rangoEncabezado = hoja.Range(FilaEncabezado, 1, FilaEncabezado, 6);
         rangoEncabezado.Style.Font.Bold = true;
-        rangoEncabezado.Style.Fill.BackgroundColor = XLColor.FromHtml("#E2E8F0");
-        rangoEncabezado.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        rangoEncabezado.Style.Font.FontSize = 10;
+        // Solo una regla debajo del encabezado. Sin recuadros: la hoja se imprime y se
+        // llena a mano, y una cuadrícula completa la vuelve ilegible en papel.
+        rangoEncabezado.Style.Border.BottomBorder = XLBorderStyleValues.Medium;
+        rangoEncabezado.Style.Border.BottomBorderColor = XLColor.FromHtml("#334155");
+        rangoEncabezado.Style.Alignment.Vertical = XLAlignmentVerticalValues.Bottom;
 
         var fila = FilaEncabezado + 1;
         foreach (var p in productos)
@@ -155,16 +175,38 @@ public class ConteoService : IConteoService
             hoja.Cell(fila, 3).Value = p.Nombre;
             hoja.Cell(fila, 4).Value = p.UnidadMedida;
             hoja.Cell(fila, 5).Value = existencias.TryGetValue(p.Id, out var ex) ? ex : 0m;
-            hoja.Range(fila, 1, fila, 6).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+
+            // Una sola línea fina abajo, como renglón para escribir la cantidad contada.
+            var rangoFila = hoja.Range(fila, 2, fila, 6);
+            rangoFila.Style.Border.BottomBorder = XLBorderStyleValues.Hair;
+            rangoFila.Style.Border.BottomBorderColor = XLColor.FromHtml("#94A3B8");
+            rangoFila.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+            hoja.Row(fila).Height = 22; // espacio para escribir a mano
+
             fila++;
         }
 
-        hoja.Column(1).Hide();
-        hoja.Columns(2, 6).AdjustToContents();
+        var ultimaFila = fila - 1;
+
+        hoja.Column(1).Hide(); // ProductoId: lo necesita el importador, no se imprime.
+        hoja.Columns(2, 5).AdjustToContents();
+        hoja.Column(6).Width = 18; // "Cantidad Contada": ancho fijo para escribir a mano
+        hoja.Range(FilaEncabezado + 1, 6, ultimaFila, 6).Style.Fill.BackgroundColor = XLColor.FromHtml("#F8FAFC");
+
+        // Sin cuadrícula: ni en pantalla ni al imprimir.
+        hoja.SheetView.ShowGridLines = false;
+        hoja.PageSetup.ShowGridlines = false;
+
         hoja.SheetView.FreezeRows(FilaEncabezado);
         hoja.PageSetup.PageOrientation = XLPageOrientation.Portrait;
         hoja.PageSetup.FitToPages(1, 0);
-        hoja.PageSetup.Margins.SetLeft(1.0).SetRight(1.0).SetTop(1.0).SetBottom(1.0);
+        hoja.PageSetup.Margins.SetLeft(0.6).SetRight(0.6).SetTop(0.7).SetBottom(0.7);
+        hoja.PageSetup.CenterHorizontally = true;
+        // El encabezado se repite en cada página impresa: sin esto, de la hoja 2 en
+        // adelante no se sabe qué columna es cuál.
+        hoja.PageSetup.SetRowsToRepeatAtTop(FilaEncabezado, FilaEncabezado);
+        hoja.PageSetup.Footer.Right.AddText("Página ").AddText(XLHFPredefinedText.PageNumber)
+            .AddText(" de ").AddText(XLHFPredefinedText.NumberOfPages);
 
         using var stream = new MemoryStream();
         libro.SaveAs(stream);

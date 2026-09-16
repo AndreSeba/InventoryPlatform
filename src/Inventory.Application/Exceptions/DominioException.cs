@@ -50,6 +50,14 @@ public class CodigoCategoriaDuplicadoException : DominioException
         : base($"Ya existe una categoría activa con el código '{codigo}'.") { }
 }
 
+public class SeleccionDeProductosVaciaException : DominioException
+{
+    public override int Status => 400;
+
+    public SeleccionDeProductosVaciaException()
+        : base("Seleccioná al menos un producto para la hoja de conteo. La hoja no se genera con todo el catálogo: un conteo físico se hace sobre un conjunto acotado de productos.") { }
+}
+
 public class UnidadNoEncontradaException : DominioException
 {
     public override int Status => 404;

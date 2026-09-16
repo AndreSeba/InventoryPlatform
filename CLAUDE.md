@@ -183,6 +183,34 @@ pero nunca regeneraba `ClaveProducto`, así que un producto editado de UNI a CAJ
 con la clave `...-UNI` mintiendo. Ahora la regenera y revalida que no choque con otro
 producto activo.
 
+### Hoja de conteo: selección obligatoria y formato imprimible (2026-09-16)
+
+`GenerarHojaConteoAsync` **exige `ProductoIds` con al menos un elemento**. Antes, si no
+venía selección, caía a "todos los productos activos" (o a una categoría entera vía
+`CategoriaId`), y eso se quitó por pedido explícito del usuario: una hoja de conteo con
+el catálogo completo es inmanejable en papel, y un conteo físico se hace siempre sobre un
+conjunto acotado. Sin selección, `SeleccionDeProductosVaciaException` (400).
+
+`GenerarHojaConteoDto` perdió `CategoriaId`: la categoría quedó como **filtro de la
+lista** en el frontend, no como criterio de generación. Si alguno de los ids pedidos no
+existe o está inactivo, el servicio falla en vez de generar en silencio una hoja más
+corta que lo que el usuario eligió.
+
+**Formato del Excel:** pensado para imprimir y llenar a mano.
+- Sin cuadrícula, ni en pantalla ni al imprimir (`SheetView.ShowGridLines` y
+  `PageSetup.ShowGridlines` en `false`). **No volver a poner recuadros por fila** — solo
+  una regla bajo el encabezado y un renglón fino (`Hair`) bajo cada fila, para escribir.
+- Filas de 22 de alto y columna "Cantidad Contada" de ancho fijo con fondo tenue, para
+  que se vea dónde escribir.
+- El encabezado se repite en cada página (`SetRowsToRepeatAtTop`) y hay pie con "Página X
+  de Y" — sin eso, de la hoja 2 en adelante no se sabe qué columna es cuál.
+
+⚠️ **El layout de celdas es un contrato con el importador**: `ImportarHojaConteoAsync`
+lee la sesión en `B2`, el código de ubicación en `E2`, el `ProductoId` en la columna 1
+(oculta, no se imprime) y la cantidad en la columna 6, desde `FilaEncabezado + 1`. Mover
+una celda rompe la importación sin error de compilación — si hay que reacomodar, tocar
+las dos puntas juntas.
+
 ### Quién hizo cada cosa: FK + snapshot del nombre (2026-09-16)
 
 Hasta esta fecha, `Movimiento.RegistradoPor`, `Solicitud.SolicitadoPor`/`AprobadoPor`,
