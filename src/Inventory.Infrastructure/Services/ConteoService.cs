@@ -213,10 +213,13 @@ public class ConteoService : IConteoService
         // El encabezado se repite en cada página impresa: sin esto, de la hoja 2 en
         // adelante no se sabe qué columna es cuál.
         hoja.PageSetup.SetRowsToRepeatAtTop(FilaEncabezado, FilaEncabezado);
-        hoja.PageSetup.Footer.Right.AddText("Página ", XLHFOccurrence.AllPages)
-            .AddText(XLHFPredefinedText.PageNumber, XLHFOccurrence.AllPages)
-            .AddText(" de ", XLHFOccurrence.AllPages)
-            .AddText(XLHFPredefinedText.NumberOfPages, XLHFOccurrence.AllPages);
+        // No encadenar: AddText devuelve IXLRichString, que solo tiene AddText(string) —
+        // las sobrecargas con XLHFPredefinedText/XLHFOccurrence son de IXLHFItem nada más.
+        var piePagina = hoja.PageSetup.Footer.Right;
+        piePagina.AddText("Página ", XLHFOccurrence.AllPages);
+        piePagina.AddText(XLHFPredefinedText.PageNumber, XLHFOccurrence.AllPages);
+        piePagina.AddText(" de ", XLHFOccurrence.AllPages);
+        piePagina.AddText(XLHFPredefinedText.NumberOfPages, XLHFOccurrence.AllPages);
 
         using var stream = new MemoryStream();
         libro.SaveAs(stream);
