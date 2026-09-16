@@ -26,6 +26,7 @@ public static class DependencyInjection
         services.AddScoped<IRolService, RolService>();
 
         services.AddScoped<ICategoriaService, CategoriaService>();
+        services.AddScoped<IUnidadService, UnidadService>();
         services.AddScoped<IAreaService, AreaService>();
         services.AddScoped<IUbicacionService, UbicacionService>();
         services.AddScoped<IProductoService, ProductoService>();

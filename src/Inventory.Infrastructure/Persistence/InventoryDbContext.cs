@@ -8,6 +8,7 @@ public class InventoryDbContext : DbContext
     public InventoryDbContext(DbContextOptions<InventoryDbContext> options) : base(options) { }
 
     public DbSet<Categoria> Categorias => Set<Categoria>();
+    public DbSet<Unidad> Unidades => Set<Unidad>();
     public DbSet<Area> Areas => Set<Area>();
     public DbSet<Ubicacion> Ubicaciones => Set<Ubicacion>();
     public DbSet<Producto> Productos => Set<Producto>();

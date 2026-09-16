@@ -60,6 +60,9 @@ Area                → CodigoArea (único entre activas), NombreArea, Activo
 Ubicacion           → TipoUbicacion (Rack|Mueble), Nro, Lado, Nivel (solo Rack),
                        CodigoUbicacion (generado en el servicio: Rack →
                        "{Lado}-{Nro}-{Nivel}", Mueble → "M{Nro}-{Lado}"), Activo
+Unidad              → CodigoUnidad (único entre activas, INMUTABLE), Nombre, Activo
+                       # catálogo editable desde /unidades — reemplaza al CHECK fijo
+                       # CK_Producto_Unidad IN ('UNI','CAJA','PQTS')
 Producto            → ClaveProducto (Codigo+"-"+Unidad, único entre activos),
                        CodigoProducto, Nombre, CategoriaId, UnidadMedida
                        (UNI|CAJA|PQTS), CostoUnitario, StockMinimo, Detalle,
@@ -136,6 +139,45 @@ siempre al final del array, nunca intercalado.
 `IUbicacionService` sigue sin Editar/Eliminar — no se pidió, y su regla de "tipo" (Rack
 exige Nivel, Mueble no) es más compleja que un simple toggle de `Activo` (ver "Más tipos de
 Ubicación" abajo).
+
+### Unidades de medida como catálogo (agregado 2026-09-16, pedido explícito del usuario)
+
+Antes las unidades eran 3 valores fijos (`UNI`/`CAJA`/`PQTS`) clavados en un CHECK de la
+base (`CK_Producto_Unidad`) y en un `<select>` hardcodeado del frontend. Agregar una
+unidad nueva exigía tocar código y migrar. Ahora hay una tabla `Unidad` editable desde
+`/unidades`, con el mismo patrón de `Categoria`/`Area`: `ListarAsync` + `CrearAsync` +
+`ActualizarAsync`, y "eliminar" es `Activo = false`, nunca un DELETE.
+
+**`Producto.UnidadMedida` sigue siendo el código en texto, NO un FK — a propósito.**
+Ese mismo código va embebido en `ClaveProducto` (`"{CodigoProducto}-{CodigoUnidad}"`,
+regla de la guía v4), así que ya es una clave natural denormalizada por diseño. Un FK
+habría obligado a agregar `.ThenInclude(p => p.Unidad)` en cada consulta de
+`SolicitudService`/`ConteoService` que hoy lee `Producto.UnidadMedida` desde entidades
+ya cargadas — y olvidarse uno **no rompe la compilación**, deja la unidad en blanco en
+pantalla en silencio. La integridad la garantizan dos cosas en su lugar:
+
+- `ProductoService.ResolverUnidadAsync` exige que el código exista entre las unidades
+  activas antes de crear o actualizar un producto (`UnidadNoEncontradaException`, 404).
+- **`CodigoUnidad` es inmutable**: `ActualizarUnidadDto` solo lleva `Nombre` y `Activo`.
+  Si se pudiera renombrar el código, los productos ya creados quedarían apuntando a uno
+  que no existe. Para corregir un código: desactivar la unidad y crear otra.
+
+Si algún día hace falta convertirlo en FK, es un cambio contenido, pero hay que revisar
+esas consultas una por una.
+
+**Seed**: `UnidadConfiguration` siembra con `HasData` las 3 unidades que antes estaban
+en el CHECK (Ids 1/2/3), así los productos existentes siguen siendo válidos apenas se
+aplica la migración, sin conversión de datos.
+
+**Permisos nuevos**: `unidades.ver`/`unidades.crear`/`unidades.editar`, agregados **al
+final** del `Catalogo` (Ids 27/28/29) por el mismo motivo de siempre — el Id del seed es
+la posición en el array. `Operador` y `Consulta` reciben `unidades.ver` porque lo
+necesitan para el formulario de producto.
+
+**Bug arreglado de paso**: `ProductoService.ActualizarAsync` cambiaba `UnidadMedida`
+pero nunca regeneraba `ClaveProducto`, así que un producto editado de UNI a CAJA quedaba
+con la clave `...-UNI` mintiendo. Ahora la regenera y revalida que no choque con otro
+producto activo.
 
 ### Más tipos de Ubicación además de Rack/Mueble (consultado 2026-09-14, no implementado)
 

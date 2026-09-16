@@ -20,12 +20,14 @@ public class RolPermisoConfiguration : IEntityTypeConfiguration<RolPermiso>
         Permisos.SolicitudesVer, Permisos.SolicitudesCrear, Permisos.SolicitudesEntregar,
         Permisos.ConteosVer, Permisos.ConteosRegistrar,
         Permisos.CategoriasVer, Permisos.AreasVer, Permisos.UbicacionesVer,
+        Permisos.UnidadesVer,
     ];
 
     private static readonly string[] PermisosConsulta =
     [
         Permisos.ProductosVer, Permisos.MovimientosVer, Permisos.SolicitudesVer,
         Permisos.ConteosVer, Permisos.CategoriasVer, Permisos.AreasVer, Permisos.UbicacionesVer,
+        Permisos.UnidadesVer,
     ];
 
     public void Configure(EntityTypeBuilder<RolPermiso> builder)

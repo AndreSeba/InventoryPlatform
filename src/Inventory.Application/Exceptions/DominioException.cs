@@ -50,6 +50,25 @@ public class CodigoCategoriaDuplicadoException : DominioException
         : base($"Ya existe una categoría activa con el código '{codigo}'.") { }
 }
 
+public class UnidadNoEncontradaException : DominioException
+{
+    public override int Status => 404;
+
+    public UnidadNoEncontradaException(int id)
+        : base($"No existe una unidad de medida activa con id {id}.") { }
+
+    public UnidadNoEncontradaException(string codigo)
+        : base($"La unidad de medida '{codigo}' no existe o está inactiva. Dela de alta en Unidades antes de usarla.") { }
+}
+
+public class CodigoUnidadDuplicadoException : DominioException
+{
+    public override int Status => 409;
+
+    public CodigoUnidadDuplicadoException(string codigo)
+        : base($"Ya existe una unidad de medida activa con el código '{codigo}'.") { }
+}
+
 public class CodigoAreaDuplicadoException : DominioException
 {
     public override int Status => 409;

@@ -42,6 +42,10 @@ public static class Permisos
     public const string CategoriasEditar = "categorias.editar";
     public const string AreasEditar = "areas.editar";
 
+    public const string UnidadesVer = "unidades.ver";
+    public const string UnidadesCrear = "unidades.crear";
+    public const string UnidadesEditar = "unidades.editar";
+
     public static readonly IReadOnlyList<(string Codigo, string Modulo, string Descripcion)> Catalogo =
     [
         (ProductosVer, "Productos", "Ver el catálogo de productos y su existencia"),
@@ -82,5 +86,10 @@ public static class Permisos
         // todo lo que viene después y rompería el mapeo contra una base ya sembrada.
         (CategoriasEditar, "Categorías", "Editar categorías existentes"),
         (AreasEditar, "Áreas", "Editar áreas existentes"),
+
+        // Agregados 2026-09-16, también al final por el mismo motivo de arriba.
+        (UnidadesVer, "Unidades", "Ver las unidades de medida"),
+        (UnidadesCrear, "Unidades", "Crear unidades de medida"),
+        (UnidadesEditar, "Unidades", "Editar unidades de medida existentes"),
     ];
 }

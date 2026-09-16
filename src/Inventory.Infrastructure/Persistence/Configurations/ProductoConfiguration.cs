@@ -29,7 +29,10 @@ public class ProductoConfiguration : IEntityTypeConfiguration<Producto>
         // proyecto): permite reutilizar la clave tras desactivar el producto anterior.
         builder.HasIndex(p => p.ClaveProducto).IsUnique().HasFilter("[Activo] = 1");
 
-        builder.ToTable(t => t.HasCheckConstraint("CK_Producto_Unidad", "[UnidadMedida] IN ('UNI','CAJA','PQTS')"));
+        // Sin CHECK de unidades: las unidades validas las define el catalogo Unidad
+        // (tabla editable desde /unidades), y ProductoService valida contra el antes
+        // de crear o actualizar. Un CHECK fijo obligaria a migrar la base cada vez
+        // que se agrega una unidad nueva, que es justo lo que este modulo evita.
         builder.ToTable(t => t.HasCheckConstraint("CK_Producto_StockMin", "[StockMinimo] >= 0"));
         builder.ToTable(t => t.HasCheckConstraint("CK_Producto_Costo", "[CostoUnitario] IS NULL OR [CostoUnitario] >= 0"));
     }
