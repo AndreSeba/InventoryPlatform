@@ -78,12 +78,15 @@ Movimiento           → NumeroMovimiento (generado post-insert: "MOV-{año}-
                        TipoMovimiento=Salida), MovimientoOrigenId (self-FK,
                        la devolución apunta a la Salida que la originó),
                        SolicitudDetalleId (opcional, solo en Salida),
-                       RegistradoPor, Motivo, FechaMovimiento
+                       RegistradoPorId (FK a Usuario) + RegistradoPorNombre,
+                       Motivo, FechaMovimiento
 Solicitud            → NumeroSolicitud (generado post-insert: "SOL-{año}-
                        {id:D6}"), AreaId, Estado (Pendiente|Aprobada|
                        Rechazada|EntregadaParcial|Entregada|Cancelada|
                        Borrador —el flujo actual no usa Borrador, crea
-                       directo en Pendiente), SolicitadoPor, AprobadoPor,
+                       directo en Pendiente), SolicitadoPorId (FK) +
+                       SolicitadoPorNombre, AprobadoPorId (FK, null hasta
+                       resolver) + AprobadoPorNombre,
                        FechaResolucion, MotivoRechazo (obligatorio si Rechazada)
 SolicitudDetalle     → SolicitudId, ProductoId (único por Solicitud),
                        CantidadSolicitada, CantidadAprobada (null hasta
@@ -91,10 +94,11 @@ SolicitudDetalle     → SolicitudId, ProductoId (único por Solicitud),
                        acumulado desde los Movimiento de Salida ligados)
 Conteo               → SesionConteo, ProductoId, UbicacionId, NumeroConteo
                        (permite reconteos 1,2,3…), CantidadContada,
-                       ContadoPor, FechaConteo
+                       ContadoPorId (FK a Usuario) + ContadoPorNombre, FechaConteo
                        # único por (SesionConteo, ProductoId, UbicacionId,
                        # NumeroConteo)
-Auditoria            → log genérico (UsuarioId, Entidad, EntidadId, Accion,
+Auditoria            → log genérico (UsuarioId (FK a Usuario) + UsuarioNombre,
+                       Entidad, EntidadId, Accion,
                        ValorAnterior, ValorNuevo, Motivo, CorrelationId) —
                        hoy solo lo escribe ProductoService (crear/actualizar/
                        desactivar). No está conectado a Movimiento/Solicitud
@@ -179,6 +183,48 @@ pero nunca regeneraba `ClaveProducto`, así que un producto editado de UNI a CAJ
 con la clave `...-UNI` mintiendo. Ahora la regenera y revalida que no choque con otro
 producto activo.
 
+### Quién hizo cada cosa: FK + snapshot del nombre (2026-09-16)
+
+Hasta esta fecha, `Movimiento.RegistradoPor`, `Solicitud.SolicitadoPor`/`AprobadoPor`,
+`Conteo.ContadoPor` y `Auditoria.UsuarioId` guardaban **el nombre completo en texto
+libre**, no una referencia al usuario. Salían de `UsuarioActual()` en los controllers,
+que devolvía `User.Identity?.Name` con fallback al string literal `"sistema"` — un
+usuario que no existe. `Auditoria.UsuarioId` era `string` y guardaba un nombre, pese a
+llamarse así.
+
+No era estrictamente una violación de 3FN (la tabla guardaba *solo* el nombre, sin el
+id, así que no había dependencia transitiva dentro de la relación), pero sí **falta de
+integridad referencial**: nada garantizaba que el valor fuera un usuario real, un cambio
+de `NombreCompleto` partía el historial en dos sin forma de saber que era la misma
+persona, dos homónimos eran indistinguibles, y "todo lo que hizo Fulano" era un match por
+string en lugar de un join.
+
+**Ahora cada una de esas tablas guarda las dos cosas:**
+
+- `...Id` → **FK real a `Usuario`**, con `DeleteBehavior.Restrict` como el resto del
+  proyecto (nunca se borra un usuario que tiene historial).
+- `...Nombre` → **snapshot del nombre al momento de la operación. Es denormalización
+  DELIBERADA, no un descuido: no la "arregles".** El FK dice quién fue y sigue siendo
+  correcto aunque la persona cambie de nombre; el snapshot dice con qué nombre se firmó
+  entonces, que es lo que una auditoría posterior necesita ver. Guardar solo el nombre
+  (como antes) era lo peor de los dos mundos.
+
+Los servicios reciben `UsuarioActuante(int Id, string Nombre)` en lugar del viejo
+`string usuarioId`, y los DTOs conservan sus propiedades de nombre (`RegistradoPor`,
+`SolicitadoPor`, …) alimentadas desde el snapshot, más los `...Id` nuevos — por eso el
+frontend no necesitó ningún cambio.
+
+**⚠️ Trampa del claim, documentada para no repetirla:** el JWT se emite con `sub` =
+`usuario.Id` (`JwtTokenService`), pero `Program.cs` **no** configura
+`MapInboundClaims = false` en `AddJwtBearer`, así que ASP.NET aplica su mapeo por defecto
+y `sub` llega renombrado a `ClaimTypes.NameIdentifier`. Buscar `"sub"` devuelve `null`.
+`ClaimsPrincipalExtensions.ObtenerUsuarioActuante()` lee `ClaimTypes.NameIdentifier` por
+eso. **No lo "arregles" poniendo `MapInboundClaims = false`**: eso también desactiva el
+mapeo de `ClaimTypes.Name` y `ClaimTypes.Role`, y rompe en silencio `User.Identity.Name`.
+
+Si el claim falta o no parsea, la extensión **lanza excepción** en vez de caer a un
+usuario inventado — el fallback `"sistema"` era parte del problema.
+
 ### Más tipos de Ubicación además de Rack/Mueble (consultado 2026-09-14, no implementado)
 
 > El usuario preguntó si valía la pena poder agregar más tipos de ubicación a futuro.
@@ -209,8 +255,7 @@ RolPermiso  → RolId, PermisoId (M:N)
 
 - **Login**: `POST /api/auth/login` (email+password) → `AuthService` valida con
   `BCrypt.Net.BCrypt.Verify`, arma un JWT (`JwtTokenService`) con claims `sub`, `email`,
-  `name` (→ `User.Identity.Name`, por eso `UsuarioActual()` en los controllers no
-  necesitó cambiar), `role`, y un claim `"permiso"` repetido por cada código de permiso
+  `name` (→ `User.Identity.Name`), `role`, y un claim `"permiso"` repetido por cada código de permiso
   del rol. Expira en `Jwt:ExpiracionMinutos` (480 = 8h, un turno laboral).
 - **Autorización por permiso, no por rol**: cada acción de cada Controller lleva
   `[Authorize(Policy = Permisos.XxxYyy)]`, usando directo el código de permiso como

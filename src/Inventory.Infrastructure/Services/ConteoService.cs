@@ -14,7 +14,7 @@ public class ConteoService : IConteoService
 
     public ConteoService(InventoryDbContext db) => _db = db;
 
-    public async Task<ConteoDto> RegistrarAsync(RegistrarConteoDto dto, string usuarioId, CancellationToken ct)
+    public async Task<ConteoDto> RegistrarAsync(RegistrarConteoDto dto, UsuarioActuante usuario, CancellationToken ct)
     {
         if (dto.NumeroConteo < 1)
             throw new ArgumentOutOfRangeException(nameof(dto.NumeroConteo), "El número de conteo debe ser 1 o mayor.");
@@ -41,7 +41,8 @@ public class ConteoService : IConteoService
             UbicacionId = ubicacion.Id,
             NumeroConteo = dto.NumeroConteo,
             CantidadContada = dto.CantidadContada,
-            ContadoPor = usuarioId,
+            ContadoPorId = usuario.Id,
+            ContadoPorNombre = usuario.Nombre,
             FechaConteo = DateTime.UtcNow,
         };
 
@@ -54,7 +55,7 @@ public class ConteoService : IConteoService
 
         return new ConteoDto(
             conteo.Id, conteo.SesionConteo, conteo.ProductoId, producto.Nombre, conteo.UbicacionId,
-            ubicacion.CodigoUbicacion, conteo.NumeroConteo, conteo.CantidadContada, conteo.ContadoPor,
+            ubicacion.CodigoUbicacion, conteo.NumeroConteo, conteo.CantidadContada, conteo.ContadoPorId, conteo.ContadoPorNombre,
             conteo.FechaConteo, existenciaSistema, conteo.CantidadContada - existenciaSistema
         );
     }
@@ -83,7 +84,7 @@ public class ConteoService : IConteoService
             var existenciaSistema = existencias[(c.ProductoId, c.UbicacionId)];
             return new ConteoDto(
                 c.Id, c.SesionConteo, c.ProductoId, c.Producto!.Nombre, c.UbicacionId, c.Ubicacion!.CodigoUbicacion,
-                c.NumeroConteo, c.CantidadContada, c.ContadoPor, c.FechaConteo, existenciaSistema, c.CantidadContada - existenciaSistema
+                c.NumeroConteo, c.CantidadContada, c.ContadoPorId, c.ContadoPorNombre, c.FechaConteo, existenciaSistema, c.CantidadContada - existenciaSistema
             );
         }).ToList();
     }
@@ -172,7 +173,7 @@ public class ConteoService : IConteoService
         return (stream.ToArray(), nombreArchivo, sesionConteo);
     }
 
-    public async Task<ImportarHojaConteoResultadoDto> ImportarHojaConteoAsync(Stream archivo, string usuarioId, CancellationToken ct)
+    public async Task<ImportarHojaConteoResultadoDto> ImportarHojaConteoAsync(Stream archivo, UsuarioActuante usuario, CancellationToken ct)
     {
         XLWorkbook libro;
         try
@@ -227,7 +228,7 @@ public class ConteoService : IConteoService
 
                 var registrado = await RegistrarAsync(
                     new RegistrarConteoDto(sesionConteo, productoId, ubicacion.Id, (ultimoNumero ?? 0) + 1, cantidad),
-                    usuarioId, ct);
+                    usuario, ct);
 
                 if (registrado.Diferencia != 0)
                     conDiferencia.Add(registrado);

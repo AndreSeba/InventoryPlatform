@@ -48,7 +48,7 @@ public class ProductoService : IProductoService
         return new SiguienteCodigoDto(codigo);
     }
 
-    public async Task<ProductoDto> CrearAsync(CrearProductoDto dto, string usuarioId, CancellationToken ct)
+    public async Task<ProductoDto> CrearAsync(CrearProductoDto dto, UsuarioActuante usuario, CancellationToken ct)
     {
         var categoria = await _db.Categorias.FirstOrDefaultAsync(c => c.Id == dto.CategoriaId && c.Activo, ct)
             ?? throw new CategoriaNoEncontradaException(dto.CategoriaId);
@@ -79,7 +79,8 @@ public class ProductoService : IProductoService
 
         _db.Auditorias.Add(new Auditoria
         {
-            UsuarioId = usuarioId,
+            UsuarioId = usuario.Id,
+            UsuarioNombre = usuario.Nombre,
             Entidad = nameof(Producto),
             EntidadId = clave,
             Accion = "Crear",
@@ -103,7 +104,7 @@ public class ProductoService : IProductoService
         return codigo;
     }
 
-    public async Task<ProductoDto> ActualizarAsync(int id, ActualizarProductoDto dto, string usuarioId, CancellationToken ct)
+    public async Task<ProductoDto> ActualizarAsync(int id, ActualizarProductoDto dto, UsuarioActuante usuario, CancellationToken ct)
     {
         var producto = await _db.Productos.Include(p => p.Categoria).FirstOrDefaultAsync(p => p.Id == id, ct)
             ?? throw new ProductoNoEncontradoException(id);
@@ -150,7 +151,8 @@ public class ProductoService : IProductoService
 
         _db.Auditorias.Add(new Auditoria
         {
-            UsuarioId = usuarioId,
+            UsuarioId = usuario.Id,
+            UsuarioNombre = usuario.Nombre,
             Entidad = nameof(Producto),
             EntidadId = producto.ClaveProducto,
             Accion = "Actualizar",
@@ -164,7 +166,7 @@ public class ProductoService : IProductoService
         return AProductoDto(producto, categoria, existencia);
     }
 
-    public async Task DesactivarAsync(int id, string usuarioId, CancellationToken ct)
+    public async Task DesactivarAsync(int id, UsuarioActuante usuario, CancellationToken ct)
     {
         var producto = await _db.Productos.FirstOrDefaultAsync(p => p.Id == id, ct)
             ?? throw new ProductoNoEncontradoException(id);
@@ -173,7 +175,8 @@ public class ProductoService : IProductoService
 
         _db.Auditorias.Add(new Auditoria
         {
-            UsuarioId = usuarioId,
+            UsuarioId = usuario.Id,
+            UsuarioNombre = usuario.Nombre,
             Entidad = nameof(Producto),
             EntidadId = producto.ClaveProducto,
             Accion = "Desactivar",

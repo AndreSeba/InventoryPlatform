@@ -13,10 +13,11 @@ public class ConteoConfiguration : IEntityTypeConfiguration<Conteo>
 
         builder.Property(c => c.SesionConteo).HasMaxLength(50).IsRequired();
         builder.Property(c => c.CantidadContada).HasColumnType("decimal(18,3)");
-        builder.Property(c => c.ContadoPor).HasMaxLength(150).IsRequired();
+        builder.Property(c => c.ContadoPorNombre).HasMaxLength(150).IsRequired();
 
         builder.HasOne(c => c.Producto).WithMany().HasForeignKey(c => c.ProductoId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(c => c.Ubicacion).WithMany().HasForeignKey(c => c.UbicacionId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(c => c.ContadoPor).WithMany().HasForeignKey(c => c.ContadoPorId).OnDelete(DeleteBehavior.Restrict);
 
         // UQ_Conteo_Sesion (guía v3/v4): permite reconteos (NumeroConteo 1, 2, 3...)
         // pero no cargar dos veces el mismo producto/ubicación/número en la misma sesión.

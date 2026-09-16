@@ -15,7 +15,7 @@ public class MovimientoConfiguration : IEntityTypeConfiguration<Movimiento>
         builder.Property(m => m.Cantidad).HasColumnType("decimal(18,3)");
         builder.Property(m => m.CantidadEfectiva).HasColumnType("decimal(18,3)");
         builder.Property(m => m.UbicacionExterna).HasMaxLength(255);
-        builder.Property(m => m.RegistradoPor).HasMaxLength(150).IsRequired();
+        builder.Property(m => m.RegistradoPorNombre).HasMaxLength(150).IsRequired();
         builder.Property(m => m.Motivo).HasMaxLength(2000);
 
         builder.HasIndex(m => m.NumeroMovimiento).IsUnique();
@@ -43,6 +43,10 @@ public class MovimientoConfiguration : IEntityTypeConfiguration<Movimiento>
         builder.HasOne(m => m.SolicitudDetalle)
             .WithMany(sd => sd.Movimientos)
             .HasForeignKey(m => m.SolicitudDetalleId)
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(m => m.RegistradoPor)
+            .WithMany()
+            .HasForeignKey(m => m.RegistradoPorId)
             .OnDelete(DeleteBehavior.Restrict);
 
         // TipoMovimiento: Entrada=1, Salida=2, AjustePositivo=3, AjusteNegativo=4.

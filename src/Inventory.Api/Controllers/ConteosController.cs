@@ -1,3 +1,4 @@
+using Inventory.Api.Security;
 using Inventory.Application.Dtos;
 using Inventory.Application.Interfaces;
 using Inventory.Domain.Security;
@@ -57,5 +58,7 @@ public class ConteosController : ControllerBase
         return Ok(resultado);
     }
 
-    private string UsuarioActual() => User.Identity?.Name ?? "sistema";
+    // Devuelve id + nombre del usuario logueado. El id sale del claim `sub`, que
+    // llega mapeado a ClaimTypes.NameIdentifier — ver ClaimsPrincipalExtensions.
+    private UsuarioActuante UsuarioActual() => User.ObtenerUsuarioActuante();
 }
