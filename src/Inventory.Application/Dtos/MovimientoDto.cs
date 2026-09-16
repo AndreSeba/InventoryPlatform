@@ -16,6 +16,7 @@ public record MovimientoDto(
     DateOnly? FechaRetornoEsperada,
     int? MovimientoOrigenId,
     int? SolicitudDetalleId,
+    int RegistradoPorId,
     string RegistradoPor,
     string? Motivo,
     DateTime FechaMovimiento

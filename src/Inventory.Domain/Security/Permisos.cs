@@ -44,6 +44,10 @@ public static class Permisos
 
     public const string InicioVer = "inicio.ver";
 
+    public const string UnidadesVer = "unidades.ver";
+    public const string UnidadesCrear = "unidades.crear";
+    public const string UnidadesEditar = "unidades.editar";
+
     public static readonly IReadOnlyList<(string Codigo, string Modulo, string Descripcion)> Catalogo =
     [
         (ProductosVer, "Productos", "Ver el catálogo de productos y su existencia"),
@@ -87,5 +91,10 @@ public static class Permisos
 
         // Agregado 2026-09-15, también al final por la misma razón que el bloque de arriba.
         (InicioVer, "Inicio", "Ver el panel de inicio con indicadores generales"),
+
+        // Agregados 2026-09-16, también al final por el mismo motivo de arriba.
+        (UnidadesVer, "Unidades", "Ver las unidades de medida"),
+        (UnidadesCrear, "Unidades", "Crear unidades de medida"),
+        (UnidadesEditar, "Unidades", "Editar unidades de medida existentes"),
     ];
 }

@@ -37,7 +37,12 @@ public class Movimiento
     public int? SolicitudDetalleId { get; set; }
     public SolicitudDetalle? SolicitudDetalle { get; set; }
 
-    public string RegistradoPor { get; set; } = string.Empty;
+    public int RegistradoPorId { get; set; }
+    public Usuario? RegistradoPor { get; set; }
+    // Snapshot del nombre al momento de la operación (denormalización DELIBERADA,
+    // ver CLAUDE.md): el FK de arriba dice QUIÉN fue y sigue siendo válido aunque
+    // la persona cambie de nombre; esto dice con qué nombre se firmó entonces.
+    public string RegistradoPorNombre { get; set; } = string.Empty;
     public string? Motivo { get; set; }
     public DateTime FechaMovimiento { get; set; } = DateTime.UtcNow;
 }

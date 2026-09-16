@@ -13,8 +13,17 @@ public class Solicitud
     public EstadoSolicitud Estado { get; set; } = EstadoSolicitud.Pendiente;
     public DateTime FechaSolicitud { get; set; } = DateTime.UtcNow;
 
-    public string SolicitadoPor { get; set; } = string.Empty;
-    public string? AprobadoPor { get; set; }
+    public int SolicitadoPorId { get; set; }
+    public Usuario? SolicitadoPor { get; set; }
+    // Snapshot del nombre al momento de la operación (denormalización DELIBERADA,
+    // ver CLAUDE.md): el FK de arriba dice QUIÉN fue y sigue siendo válido aunque
+    // la persona cambie de nombre; esto dice con qué nombre se firmó entonces.
+    public string SolicitadoPorNombre { get; set; } = string.Empty;
+
+    // Null hasta que se aprueba o rechaza.
+    public int? AprobadoPorId { get; set; }
+    public Usuario? AprobadoPor { get; set; }
+    public string? AprobadoPorNombre { get; set; }
     public DateTime? FechaResolucion { get; set; }
 
     // Obligatorio si Estado = Rechazada (CK_Solicitud_Aprobacion de la guía v4).

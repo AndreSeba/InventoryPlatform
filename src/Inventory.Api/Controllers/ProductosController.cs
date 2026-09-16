@@ -1,3 +1,4 @@
+using Inventory.Api.Security;
 using Inventory.Application.Dtos;
 using Inventory.Application.Interfaces;
 using Inventory.Domain.Security;
@@ -47,8 +48,8 @@ public class ProductosController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<ProductoDto>> Crear([FromBody] CrearProductoDto dto, CancellationToken ct)
     {
-        var usuarioId = UsuarioActual();
-        var creado = await _productoService.CrearAsync(dto, usuarioId, ct);
+        var usuario = UsuarioActual();
+        var creado = await _productoService.CrearAsync(dto, usuario, ct);
         return CreatedAtAction(nameof(ObtenerPorId), new { id = creado.Id }, creado);
     }
 
@@ -59,8 +60,8 @@ public class ProductosController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ProductoDto>> Actualizar(int id, [FromBody] ActualizarProductoDto dto, CancellationToken ct)
     {
-        var usuarioId = UsuarioActual();
-        var actualizado = await _productoService.ActualizarAsync(id, dto, usuarioId, ct);
+        var usuario = UsuarioActual();
+        var actualizado = await _productoService.ActualizarAsync(id, dto, usuario, ct);
         return Ok(actualizado);
     }
 
@@ -84,8 +85,8 @@ public class ProductosController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Desactivar(int id, CancellationToken ct)
     {
-        var usuarioId = UsuarioActual();
-        await _productoService.DesactivarAsync(id, usuarioId, ct);
+        var usuario = UsuarioActual();
+        await _productoService.DesactivarAsync(id, usuario, ct);
         return NoContent();
     }
 
@@ -107,5 +108,7 @@ public class ProductosController : ControllerBase
         return Ok(resultado);
     }
 
-    private string UsuarioActual() => User.Identity?.Name ?? "sistema";
+    // Devuelve id + nombre del usuario logueado. El id sale del claim `sub`, que
+    // llega mapeado a ClaimTypes.NameIdentifier — ver ClaimsPrincipalExtensions.
+    private UsuarioActuante UsuarioActual() => User.ObtenerUsuarioActuante();
 }

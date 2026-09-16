@@ -28,15 +28,15 @@ public class SolicitudService : ISolicitudService
         return solicitudes.Select(ASolicitudDto).ToList();
     }
 
-    // Mismo filtro por estado que ListarAsync, más SolicitadoPor == usuarioId — usada por
+    // Mismo filtro por estado que ListarAsync, más SolicitadoPorId == usuarioId — usada por
     // el rol Solicitante, que no tiene permiso para ver las de todos (ver Permisos.InicioVer
     // y RolPermisoConfiguration.PermisosSolicitante).
-    public async Task<IReadOnlyList<SolicitudDto>> ListarMiasAsync(string usuarioId, string? estado, CancellationToken ct)
+    public async Task<IReadOnlyList<SolicitudDto>> ListarMiasAsync(int usuarioId, string? estado, CancellationToken ct)
     {
         var query = _db.Solicitudes.AsNoTracking()
             .Include(s => s.Area)
             .Include(s => s.Detalles).ThenInclude(d => d.Producto)
-            .Where(s => s.SolicitadoPor == usuarioId)
+            .Where(s => s.SolicitadoPorId == usuarioId)
             .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(estado) && Enum.TryParse<EstadoSolicitud>(estado, true, out var estadoEnum))
@@ -57,7 +57,7 @@ public class SolicitudService : ISolicitudService
         return ASolicitudDto(solicitud);
     }
 
-    public async Task<SolicitudDto> CrearAsync(CrearSolicitudDto dto, string usuarioId, CancellationToken ct)
+    public async Task<SolicitudDto> CrearAsync(CrearSolicitudDto dto, UsuarioActuante usuario, CancellationToken ct)
     {
         if (dto.Detalles.Count == 0)
             throw new SolicitudEstadoInvalidoException("Una solicitud necesita al menos una línea.");
@@ -79,7 +79,8 @@ public class SolicitudService : ISolicitudService
             AreaId = area.Id,
             Estado = EstadoSolicitud.Pendiente,
             FechaSolicitud = DateTime.UtcNow,
-            SolicitadoPor = usuarioId,
+            SolicitadoPorId = usuario.Id,
+            SolicitadoPorNombre = usuario.Nombre,
             NumeroSolicitud = "PENDIENTE",
         };
         solicitud.Detalles = dto.Detalles.Select(d => new SolicitudDetalle
@@ -102,7 +103,7 @@ public class SolicitudService : ISolicitudService
         return ASolicitudDto(solicitud);
     }
 
-    public async Task<SolicitudDto> AprobarAsync(int id, AprobarSolicitudDto dto, string usuarioId, CancellationToken ct)
+    public async Task<SolicitudDto> AprobarAsync(int id, AprobarSolicitudDto dto, UsuarioActuante usuario, CancellationToken ct)
     {
         var solicitud = await _db.Solicitudes.Include(s => s.Area).Include(s => s.Detalles).ThenInclude(d => d.Producto)
             .FirstOrDefaultAsync(s => s.Id == id, ct)
@@ -124,14 +125,15 @@ public class SolicitudService : ISolicitudService
         }
 
         solicitud.Estado = EstadoSolicitud.Aprobada;
-        solicitud.AprobadoPor = usuarioId;
+        solicitud.AprobadoPorId = usuario.Id;
+        solicitud.AprobadoPorNombre = usuario.Nombre;
         solicitud.FechaResolucion = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(ct);
         return ASolicitudDto(solicitud);
     }
 
-    public async Task<SolicitudDto> RechazarAsync(int id, RechazarSolicitudDto dto, string usuarioId, CancellationToken ct)
+    public async Task<SolicitudDto> RechazarAsync(int id, RechazarSolicitudDto dto, UsuarioActuante usuario, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(dto.MotivoRechazo))
             throw new SolicitudEstadoInvalidoException("Una solicitud rechazada requiere motivo de rechazo.");
@@ -145,7 +147,8 @@ public class SolicitudService : ISolicitudService
 
         solicitud.Estado = EstadoSolicitud.Rechazada;
         solicitud.MotivoRechazo = dto.MotivoRechazo;
-        solicitud.AprobadoPor = usuarioId;
+        solicitud.AprobadoPorId = usuario.Id;
+        solicitud.AprobadoPorNombre = usuario.Nombre;
         solicitud.FechaResolucion = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(ct);
@@ -154,7 +157,8 @@ public class SolicitudService : ISolicitudService
 
     private static SolicitudDto ASolicitudDto(Solicitud s) => new(
         s.Id, s.NumeroSolicitud, s.AreaId, s.Area?.NombreArea ?? string.Empty, s.Estado,
-        s.FechaSolicitud, s.SolicitadoPor, s.AprobadoPor, s.FechaResolucion, s.MotivoRechazo,
+        s.FechaSolicitud, s.SolicitadoPorId, s.SolicitadoPorNombre,
+        s.AprobadoPorId, s.AprobadoPorNombre, s.FechaResolucion, s.MotivoRechazo,
         s.Detalles.Select(d => new SolicitudDetalleDto(
             d.Id, d.ProductoId, d.Producto?.Nombre ?? string.Empty, d.Producto?.CodigoProducto ?? string.Empty,
             d.Producto?.UnidadMedida ?? string.Empty, d.Producto?.CostoUnitario,

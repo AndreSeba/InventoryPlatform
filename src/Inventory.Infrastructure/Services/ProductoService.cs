@@ -48,13 +48,13 @@ public class ProductoService : IProductoService
         return new SiguienteCodigoDto(codigo);
     }
 
-    public async Task<ProductoDto> CrearAsync(CrearProductoDto dto, string usuarioId, CancellationToken ct)
+    public async Task<ProductoDto> CrearAsync(CrearProductoDto dto, UsuarioActuante usuario, CancellationToken ct)
     {
         var categoria = await _db.Categorias.FirstOrDefaultAsync(c => c.Id == dto.CategoriaId && c.Activo, ct)
             ?? throw new CategoriaNoEncontradaException(dto.CategoriaId);
 
         var codigo = await GenerarCodigoAsync(categoria, ct);
-        var unidad = dto.UnidadMedida.Trim().ToUpperInvariant();
+        var unidad = await ResolverUnidadAsync(dto.UnidadMedida, ct);
         var clave = $"{codigo}-{unidad}"; // regla de la guía v4: Codigo + '-' + Unidad
 
         var yaExiste = await _db.Productos.AnyAsync(p => p.ClaveProducto == clave && p.Activo, ct);
@@ -82,7 +82,8 @@ public class ProductoService : IProductoService
 
         _db.Auditorias.Add(new Auditoria
         {
-            UsuarioId = usuarioId,
+            UsuarioId = usuario.Id,
+            UsuarioNombre = usuario.Nombre,
             Entidad = nameof(Producto),
             EntidadId = clave,
             Accion = "Crear",
@@ -93,7 +94,20 @@ public class ProductoService : IProductoService
         return AProductoDto(producto, categoria, 0);
     }
 
-    public async Task<ProductoDto> ActualizarAsync(int id, ActualizarProductoDto dto, string usuarioId, CancellationToken ct)
+    // Las unidades válidas salen del catálogo Unidad (editable desde /unidades), ya no
+    // de un CHECK fijo en la base. Devuelve el código normalizado en mayúsculas.
+    private async Task<string> ResolverUnidadAsync(string unidadMedida, CancellationToken ct)
+    {
+        var codigo = (unidadMedida ?? string.Empty).Trim().ToUpperInvariant();
+
+        var existe = await _db.Unidades.AnyAsync(u => u.CodigoUnidad == codigo && u.Activo, ct);
+        if (!existe)
+            throw new UnidadNoEncontradaException(codigo);
+
+        return codigo;
+    }
+
+    public async Task<ProductoDto> ActualizarAsync(int id, ActualizarProductoDto dto, UsuarioActuante usuario, CancellationToken ct)
     {
         var producto = await _db.Productos.Include(p => p.Categoria).FirstOrDefaultAsync(p => p.Id == id, ct)
             ?? throw new ProductoNoEncontradoException(id);
@@ -114,9 +128,25 @@ public class ProductoService : IProductoService
             TeniaImagen = producto.ImagenData is not null,
         });
 
+        var unidadNueva = await ResolverUnidadAsync(dto.UnidadMedida, ct);
+        if (unidadNueva != producto.UnidadMedida)
+        {
+            // ClaveProducto es "{CodigoProducto}-{Unidad}" (regla de la guía v4). Antes
+            // se cambiaba la unidad sin regenerar la clave, así que quedaba mintiendo
+            // (clave ...-UNI con UnidadMedida CAJA). Se regenera y se revalida que la
+            // nueva no choque con otro producto activo.
+            var claveNueva = $"{producto.CodigoProducto}-{unidadNueva}";
+            var claveEnUso = await _db.Productos
+                .AnyAsync(p => p.ClaveProducto == claveNueva && p.Activo && p.Id != producto.Id, ct);
+            if (claveEnUso)
+                throw new CodigoProductoDuplicadoException(claveNueva);
+
+            producto.ClaveProducto = claveNueva;
+            producto.UnidadMedida = unidadNueva;
+        }
+
         producto.Nombre = dto.Nombre;
         producto.CategoriaId = dto.CategoriaId;
-        producto.UnidadMedida = dto.UnidadMedida.Trim().ToUpperInvariant();
         producto.CostoUnitario = dto.CostoUnitario;
         producto.StockMinimo = dto.StockMinimo;
         producto.Detalle = dto.Detalle;
@@ -132,7 +162,8 @@ public class ProductoService : IProductoService
 
         _db.Auditorias.Add(new Auditoria
         {
-            UsuarioId = usuarioId,
+            UsuarioId = usuario.Id,
+            UsuarioNombre = usuario.Nombre,
             Entidad = nameof(Producto),
             EntidadId = producto.ClaveProducto,
             Accion = "Actualizar",
@@ -146,7 +177,7 @@ public class ProductoService : IProductoService
         return AProductoDto(producto, categoria, existencia);
     }
 
-    public async Task DesactivarAsync(int id, string usuarioId, CancellationToken ct)
+    public async Task DesactivarAsync(int id, UsuarioActuante usuario, CancellationToken ct)
     {
         var producto = await _db.Productos.FirstOrDefaultAsync(p => p.Id == id, ct)
             ?? throw new ProductoNoEncontradoException(id);
@@ -155,7 +186,8 @@ public class ProductoService : IProductoService
 
         _db.Auditorias.Add(new Auditoria
         {
-            UsuarioId = usuarioId,
+            UsuarioId = usuario.Id,
+            UsuarioNombre = usuario.Nombre,
             Entidad = nameof(Producto),
             EntidadId = producto.ClaveProducto,
             Accion = "Desactivar",

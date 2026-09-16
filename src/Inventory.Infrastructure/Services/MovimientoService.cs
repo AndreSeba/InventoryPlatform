@@ -15,15 +15,15 @@ public class MovimientoService : IMovimientoService
 
     public MovimientoService(InventoryDbContext db) => _db = db;
 
-    public Task<MovimientoResultadoDto> RegistrarEntradaAsync(RegistrarEntradaDto dto, string usuarioId, CancellationToken ct) =>
+    public Task<MovimientoResultadoDto> RegistrarEntradaAsync(RegistrarEntradaDto dto, UsuarioActuante usuario, CancellationToken ct) =>
         EjecutarAsync(async (producto, ubicacion, tx) =>
         {
-            var movimiento = NuevoMovimiento(producto.Id, TipoMovimiento.Entrada, dto.Cantidad, dto.Cantidad, ubicacion.Id, usuarioId, dto.Motivo);
+            var movimiento = NuevoMovimiento(producto.Id, TipoMovimiento.Entrada, dto.Cantidad, dto.Cantidad, ubicacion.Id, usuario, dto.Motivo);
             await GuardarConNumeroAsync(movimiento, "MOV", ct);
             return movimiento;
         }, dto.ProductoId, dto.UbicacionId, ct);
 
-    public Task<MovimientoResultadoDto> RegistrarSalidaAsync(RegistrarSalidaDto dto, string usuarioId, CancellationToken ct) =>
+    public Task<MovimientoResultadoDto> RegistrarSalidaAsync(RegistrarSalidaDto dto, UsuarioActuante usuario, CancellationToken ct) =>
         EjecutarAsync(async (producto, ubicacion, tx) =>
         {
             if (dto.Cantidad <= 0)
@@ -48,7 +48,7 @@ public class MovimientoService : IMovimientoService
                     throw new SolicitudEstadoInvalidoException($"La salida ({dto.Cantidad}) supera lo pendiente de entregar en la solicitud ({pendiente}).");
             }
 
-            var movimiento = NuevoMovimiento(producto.Id, TipoMovimiento.Salida, dto.Cantidad, -dto.Cantidad, ubicacion.Id, usuarioId, dto.Motivo);
+            var movimiento = NuevoMovimiento(producto.Id, TipoMovimiento.Salida, dto.Cantidad, -dto.Cantidad, ubicacion.Id, usuario, dto.Motivo);
             movimiento.Retorna = dto.Retorna;
             movimiento.UbicacionExterna = dto.Retorna ? dto.UbicacionExterna : null;
             movimiento.FechaRetornoEsperada = dto.Retorna ? dto.FechaRetornoEsperada : null;
@@ -62,7 +62,7 @@ public class MovimientoService : IMovimientoService
             return movimiento;
         }, dto.ProductoId, dto.UbicacionId, ct);
 
-    public Task<MovimientoResultadoDto> RegistrarAjusteAsync(RegistrarAjusteDto dto, string usuarioId, CancellationToken ct) =>
+    public Task<MovimientoResultadoDto> RegistrarAjusteAsync(RegistrarAjusteDto dto, UsuarioActuante usuario, CancellationToken ct) =>
         EjecutarAsync(async (producto, ubicacion, tx) =>
         {
             if (dto.Cantidad <= 0)
@@ -78,12 +78,12 @@ public class MovimientoService : IMovimientoService
                     throw new StockInsuficienteException($"{producto.CodigoProducto} en {ubicacion.CodigoUbicacion}", existenciaUbicacion, dto.Cantidad);
             }
 
-            var movimiento = NuevoMovimiento(producto.Id, tipo, dto.Cantidad, efectiva, ubicacion.Id, usuarioId, dto.Motivo);
+            var movimiento = NuevoMovimiento(producto.Id, tipo, dto.Cantidad, efectiva, ubicacion.Id, usuario, dto.Motivo);
             await GuardarConNumeroAsync(movimiento, "MOV", ct);
             return movimiento;
         }, dto.ProductoId, dto.UbicacionId, ct);
 
-    public async Task<MovimientoResultadoDto> RegistrarDevolucionAsync(RegistrarDevolucionDto dto, string usuarioId, CancellationToken ct)
+    public async Task<MovimientoResultadoDto> RegistrarDevolucionAsync(RegistrarDevolucionDto dto, UsuarioActuante usuario, CancellationToken ct)
     {
         if (dto.Cantidad <= 0)
             throw new ArgumentOutOfRangeException(nameof(dto.Cantidad), "La cantidad debe ser mayor a cero.");
@@ -110,7 +110,7 @@ public class MovimientoService : IMovimientoService
         var ubicacion = await _db.Ubicaciones.FirstOrDefaultAsync(u => u.Id == dto.UbicacionId && u.Activo, ct)
             ?? throw new UbicacionNoEncontradaException(dto.UbicacionId);
 
-        var movimiento = NuevoMovimiento(origen.ProductoId, TipoMovimiento.Entrada, dto.Cantidad, dto.Cantidad, ubicacion.Id, usuarioId, dto.Motivo);
+        var movimiento = NuevoMovimiento(origen.ProductoId, TipoMovimiento.Entrada, dto.Cantidad, dto.Cantidad, ubicacion.Id, usuario, dto.Motivo);
         movimiento.MovimientoOrigenId = origen.Id;
 
         await GuardarConNumeroAsync(movimiento, "MOV", ct);
@@ -237,7 +237,7 @@ public class MovimientoService : IMovimientoService
             hoja.Cell(fila, 7).Style.NumberFormat.Format = "#,##0.00";
             hoja.Cell(fila, 8).Value = m.Ubicacion?.CodigoUbicacion ?? "";
             hoja.Cell(fila, 9).Value = m.TipoMovimiento == TipoMovimiento.Salida ? (m.Retorna ? "Sí" : "No") : "";
-            hoja.Cell(fila, 10).Value = m.RegistradoPor;
+            hoja.Cell(fila, 10).Value = m.RegistradoPorNombre;
             hoja.Cell(fila, 11).Value = m.Motivo ?? "";
 
             var (fondo, letra) = ColorTipo(m.TipoMovimiento);
@@ -312,14 +312,15 @@ public class MovimientoService : IMovimientoService
         return new MovimientoResultadoDto(movimiento.Id, movimiento.NumeroMovimiento, "CONFIRMADO", movimiento.FechaMovimiento, existenciaResultante);
     }
 
-    private static Movimiento NuevoMovimiento(int productoId, TipoMovimiento tipo, decimal cantidad, decimal cantidadEfectiva, int ubicacionId, string usuarioId, string? motivo) => new()
+    private static Movimiento NuevoMovimiento(int productoId, TipoMovimiento tipo, decimal cantidad, decimal cantidadEfectiva, int ubicacionId, UsuarioActuante usuario, string? motivo) => new()
     {
         ProductoId = productoId,
         TipoMovimiento = tipo,
         Cantidad = cantidad,
         CantidadEfectiva = cantidadEfectiva,
         UbicacionId = ubicacionId,
-        RegistradoPor = usuarioId,
+        RegistradoPorId = usuario.Id,
+        RegistradoPorNombre = usuario.Nombre,
         Motivo = motivo,
         FechaMovimiento = DateTime.UtcNow,
         NumeroMovimiento = "PENDIENTE", // se reemplaza en GuardarConNumeroAsync una vez que hay Id
@@ -360,6 +361,6 @@ public class MovimientoService : IMovimientoService
     private static MovimientoDto AMovimientoDto(Movimiento m) => new(
         m.Id, m.NumeroMovimiento, m.ProductoId, m.Producto?.Nombre ?? string.Empty, m.TipoMovimiento, m.Cantidad,
         m.UbicacionId, m.Ubicacion?.CodigoUbicacion ?? string.Empty, m.Retorna, m.UbicacionExterna, m.FechaRetornoEsperada,
-        m.MovimientoOrigenId, m.SolicitudDetalleId, m.RegistradoPor, m.Motivo, m.FechaMovimiento
+        m.MovimientoOrigenId, m.SolicitudDetalleId, m.RegistradoPorId, m.RegistradoPorNombre, m.Motivo, m.FechaMovimiento
     );
 }

@@ -60,6 +60,9 @@ Area                → CodigoArea (único entre activas), NombreArea, Activo
 Ubicacion           → TipoUbicacion (Rack|Mueble), Nro, Lado, Nivel (solo Rack),
                        CodigoUbicacion (generado en el servicio: Rack →
                        "{Lado}-{Nro}-{Nivel}", Mueble → "M{Nro}-{Lado}"), Activo
+Unidad              → CodigoUnidad (único entre activas, INMUTABLE), Nombre, Activo
+                       # catálogo editable desde /unidades — reemplaza al CHECK fijo
+                       # CK_Producto_Unidad IN ('UNI','CAJA','PQTS')
 Producto            → ClaveProducto (Codigo+"-"+Unidad, único entre activos),
                        CodigoProducto, Nombre, CategoriaId, UnidadMedida
                        (UNI|CAJA|PQTS), CostoUnitario, StockMinimo, Detalle,
@@ -75,12 +78,15 @@ Movimiento           → NumeroMovimiento (generado post-insert: "MOV-{año}-
                        TipoMovimiento=Salida), MovimientoOrigenId (self-FK,
                        la devolución apunta a la Salida que la originó),
                        SolicitudDetalleId (opcional, solo en Salida),
-                       RegistradoPor, Motivo, FechaMovimiento
+                       RegistradoPorId (FK a Usuario) + RegistradoPorNombre,
+                       Motivo, FechaMovimiento
 Solicitud            → NumeroSolicitud (generado post-insert: "SOL-{año}-
                        {id:D6}"), AreaId, Estado (Pendiente|Aprobada|
                        Rechazada|EntregadaParcial|Entregada|Cancelada|
                        Borrador —el flujo actual no usa Borrador, crea
-                       directo en Pendiente), SolicitadoPor, AprobadoPor,
+                       directo en Pendiente), SolicitadoPorId (FK) +
+                       SolicitadoPorNombre, AprobadoPorId (FK, null hasta
+                       resolver) + AprobadoPorNombre,
                        FechaResolucion, MotivoRechazo (obligatorio si Rechazada)
 SolicitudDetalle     → SolicitudId, ProductoId (único por Solicitud),
                        CantidadSolicitada, CantidadAprobada (null hasta
@@ -88,10 +94,11 @@ SolicitudDetalle     → SolicitudId, ProductoId (único por Solicitud),
                        acumulado desde los Movimiento de Salida ligados)
 Conteo               → SesionConteo, ProductoId, UbicacionId, NumeroConteo
                        (permite reconteos 1,2,3…), CantidadContada,
-                       ContadoPor, FechaConteo
+                       ContadoPorId (FK a Usuario) + ContadoPorNombre, FechaConteo
                        # único por (SesionConteo, ProductoId, UbicacionId,
                        # NumeroConteo)
-Auditoria            → log genérico (UsuarioId, Entidad, EntidadId, Accion,
+Auditoria            → log genérico (UsuarioId (FK a Usuario) + UsuarioNombre,
+                       Entidad, EntidadId, Accion,
                        ValorAnterior, ValorNuevo, Motivo, CorrelationId) —
                        hoy solo lo escribe ProductoService (crear/actualizar/
                        desactivar). No está conectado a Movimiento/Solicitud
@@ -137,6 +144,124 @@ siempre al final del array, nunca intercalado.
 exige Nivel, Mueble no) es más compleja que un simple toggle de `Activo` (ver "Más tipos de
 Ubicación" abajo).
 
+### Unidades de medida como catálogo (agregado 2026-09-16, pedido explícito del usuario)
+
+Antes las unidades eran 3 valores fijos (`UNI`/`CAJA`/`PQTS`) clavados en un CHECK de la
+base (`CK_Producto_Unidad`) y en un `<select>` hardcodeado del frontend. Agregar una
+unidad nueva exigía tocar código y migrar. Ahora hay una tabla `Unidad` editable desde
+`/unidades`, con el mismo patrón de `Categoria`/`Area`: `ListarAsync` + `CrearAsync` +
+`ActualizarAsync`, y "eliminar" es `Activo = false`, nunca un DELETE.
+
+**`Producto.UnidadMedida` sigue siendo el código en texto, NO un FK — a propósito.**
+Ese mismo código va embebido en `ClaveProducto` (`"{CodigoProducto}-{CodigoUnidad}"`,
+regla de la guía v4), así que ya es una clave natural denormalizada por diseño. Un FK
+habría obligado a agregar `.ThenInclude(p => p.Unidad)` en cada consulta de
+`SolicitudService`/`ConteoService` que hoy lee `Producto.UnidadMedida` desde entidades
+ya cargadas — y olvidarse uno **no rompe la compilación**, deja la unidad en blanco en
+pantalla en silencio. La integridad la garantizan dos cosas en su lugar:
+
+- `ProductoService.ResolverUnidadAsync` exige que el código exista entre las unidades
+  activas antes de crear o actualizar un producto (`UnidadNoEncontradaException`, 404).
+- **`CodigoUnidad` es inmutable**: `ActualizarUnidadDto` solo lleva `Nombre` y `Activo`.
+  Si se pudiera renombrar el código, los productos ya creados quedarían apuntando a uno
+  que no existe. Para corregir un código: desactivar la unidad y crear otra.
+
+Si algún día hace falta convertirlo en FK, es un cambio contenido, pero hay que revisar
+esas consultas una por una.
+
+**Seed**: `UnidadConfiguration` siembra con `HasData` las 3 unidades que antes estaban
+en el CHECK (Ids 1/2/3), así los productos existentes siguen siendo válidos apenas se
+aplica la migración, sin conversión de datos.
+
+**Permisos nuevos**: `unidades.ver`/`unidades.crear`/`unidades.editar`, agregados **al
+final** del `Catalogo` (Ids 27/28/29) por el mismo motivo de siempre — el Id del seed es
+la posición en el array. `Operador` y `Consulta` reciben `unidades.ver` porque lo
+necesitan para el formulario de producto.
+
+**Bug arreglado de paso**: `ProductoService.ActualizarAsync` cambiaba `UnidadMedida`
+pero nunca regeneraba `ClaveProducto`, así que un producto editado de UNI a CAJA quedaba
+con la clave `...-UNI` mintiendo. Ahora la regenera y revalida que no choque con otro
+producto activo.
+
+### Hoja de conteo: selección explícita de productos, sin filtro de ubicación (2026-09-15/16)
+
+`GenerarHojaConteoDto` es solo `List<int> ProductoIds` — **obligatorio, no puede venir
+vacío** (`SeleccionDeProductosVaciaException`, 400). Antes tenía además `UbicacionId`
+(obligar a elegir una sola ubicación por hoja) y `CategoriaId` (para generar por
+categoría entera, o el catálogo completo si no venía nada); los dos se sacaron por
+pedido explícito del usuario, en dos pasos:
+
+- **Sin `UbicacionId`** (2026-09-15): el operario elige PRODUCTOS, no ubicaciones. El
+  servicio arma una fila por cada `(producto, ubicación)` donde ese producto tiene stock
+  ahora mismo — un producto guardado en 3 racks genera 3 filas. Mismo criterio que
+  `ProductoService.ListarUbicacionesConStockAsync`, pero agregado para todos los
+  productos elegidos de una sola consulta.
+- **Sin `CategoriaId`, `ProductoIds` obligatorio** (2026-09-16): generar con el catálogo
+  completo o una categoría entera es inmanejable en papel — un conteo físico se hace
+  siempre sobre un conjunto acotado. La categoría quedó como **filtro de la lista** en el
+  frontend (acota qué se ve para tildar), nunca como criterio de generación. Si alguno de
+  los ids pedidos no existe o está inactivo, el servicio falla en vez de generar en
+  silencio una hoja más corta que lo elegido.
+
+**Formato del Excel:** pensado para imprimir y llenar a mano.
+- Sin cuadrícula, ni en pantalla ni al imprimir (`SheetView.ShowGridLines` y
+  `PageSetup.ShowGridlines` en `false`). **No volver a poner recuadros por fila** — solo
+  una regla bajo el encabezado y un renglón fino (`Hair`) bajo cada fila, para escribir.
+- Filas de 22 de alto y columna "Cantidad Contada" (la última, con fondo tenue) de ancho
+  fijo, para que se vea dónde escribir.
+- El encabezado se repite en cada página (`SetRowsToRepeatAtTop`) y hay pie con "Página X
+  de Y" — sin eso, de la hoja 2 en adelante no se sabe qué columna es cuál.
+
+⚠️ **El layout de celdas es un contrato con el importador**: `ImportarHojaConteoAsync`
+lee la sesión en `B2`, el `ProductoId` en la columna 1 y el `UbicacionId` en la columna 2
+(ambas ocultas, no se imprimen — la ubicación viaja por FILA, no en el encabezado, porque
+un mismo producto puede aparecer en varias filas con ubicaciones distintas) y la cantidad
+contada en la última columna (`ColumnasExcel` = 9), desde `FilaEncabezado + 1`. Mover una
+celda rompe la importación sin error de compilación — si hay que reacomodar, tocar las
+dos puntas juntas.
+
+### Quién hizo cada cosa: FK + snapshot del nombre (2026-09-16)
+
+Hasta esta fecha, `Movimiento.RegistradoPor`, `Solicitud.SolicitadoPor`/`AprobadoPor`,
+`Conteo.ContadoPor` y `Auditoria.UsuarioId` guardaban **el nombre completo en texto
+libre**, no una referencia al usuario. Salían de `UsuarioActual()` en los controllers,
+que devolvía `User.Identity?.Name` con fallback al string literal `"sistema"` — un
+usuario que no existe. `Auditoria.UsuarioId` era `string` y guardaba un nombre, pese a
+llamarse así.
+
+No era estrictamente una violación de 3FN (la tabla guardaba *solo* el nombre, sin el
+id, así que no había dependencia transitiva dentro de la relación), pero sí **falta de
+integridad referencial**: nada garantizaba que el valor fuera un usuario real, un cambio
+de `NombreCompleto` partía el historial en dos sin forma de saber que era la misma
+persona, dos homónimos eran indistinguibles, y "todo lo que hizo Fulano" era un match por
+string en lugar de un join.
+
+**Ahora cada una de esas tablas guarda las dos cosas:**
+
+- `...Id` → **FK real a `Usuario`**, con `DeleteBehavior.Restrict` como el resto del
+  proyecto (nunca se borra un usuario que tiene historial).
+- `...Nombre` → **snapshot del nombre al momento de la operación. Es denormalización
+  DELIBERADA, no un descuido: no la "arregles".** El FK dice quién fue y sigue siendo
+  correcto aunque la persona cambie de nombre; el snapshot dice con qué nombre se firmó
+  entonces, que es lo que una auditoría posterior necesita ver. Guardar solo el nombre
+  (como antes) era lo peor de los dos mundos.
+
+Los servicios reciben `UsuarioActuante(int Id, string Nombre)` en lugar del viejo
+`string usuarioId`, y los DTOs conservan sus propiedades de nombre (`RegistradoPor`,
+`SolicitadoPor`, …) alimentadas desde el snapshot, más los `...Id` nuevos — por eso el
+frontend no necesitó ningún cambio.
+
+**⚠️ Trampa del claim, documentada para no repetirla:** el JWT se emite con `sub` =
+`usuario.Id` (`JwtTokenService`), pero `Program.cs` **no** configura
+`MapInboundClaims = false` en `AddJwtBearer`, así que ASP.NET aplica su mapeo por defecto
+y `sub` llega renombrado a `ClaimTypes.NameIdentifier`. Buscar `"sub"` devuelve `null`.
+`ClaimsPrincipalExtensions.ObtenerUsuarioActuante()` lee `ClaimTypes.NameIdentifier` por
+eso. **No lo "arregles" poniendo `MapInboundClaims = false`**: eso también desactiva el
+mapeo de `ClaimTypes.Name` y `ClaimTypes.Role`, y rompe en silencio `User.Identity.Name`.
+
+Si el claim falta o no parsea, la extensión **lanza excepción** en vez de caer a un
+usuario inventado — el fallback `"sistema"` era parte del problema.
+
 ### Más tipos de Ubicación además de Rack/Mueble (consultado 2026-09-14, no implementado)
 
 > El usuario preguntó si valía la pena poder agregar más tipos de ubicación a futuro.
@@ -167,8 +292,7 @@ RolPermiso  → RolId, PermisoId (M:N)
 
 - **Login**: `POST /api/auth/login` (email+password) → `AuthService` valida con
   `BCrypt.Net.BCrypt.Verify`, arma un JWT (`JwtTokenService`) con claims `sub`, `email`,
-  `name` (→ `User.Identity.Name`, por eso `UsuarioActual()` en los controllers no
-  necesitó cambiar), `role`, y un claim `"permiso"` repetido por cada código de permiso
+  `name` (→ `User.Identity.Name`), `role`, y un claim `"permiso"` repetido por cada código de permiso
   del rol. Expira en `Jwt:ExpiracionMinutos` (480 = 8h, un turno laboral).
 - **Autorización por permiso, no por rol**: cada acción de cada Controller lleva
   `[Authorize(Policy = Permisos.XxxYyy)]`, usando directo el código de permiso como
@@ -270,21 +394,31 @@ no sea muy pesado"). Blazor Server que:
 puertos nuevos (http y https) — si no, el navegador bloquea las respuestas
 aunque el request llegue bien.
 
-## Base de datos — SQL Server, sin configurar todavía
+## Base de datos — SQL Server, sin aplicar todavía
 
 `appsettings.json` trae una cadena de conexión a LocalDB
 (`(localdb)\mssqllocaldb`), pero **LocalDB no está instalado en la máquina
-de desarrollo actual** — no se corrió ninguna migración real todavía. Antes
-de poder guardar datos de verdad hace falta:
+de desarrollo actual** — ninguna migración se aplicó contra una base real
+todavía. Antes de poder guardar datos de verdad hace falta:
 
 1. Instalar SQL Server Express LocalDB (o levantar un contenedor Docker, o
    apuntar a una instancia ya existente — a decidir con el usuario).
-2. `dotnet ef migrations add InicialV4 --project src/Inventory.Infrastructure --startup-project src/Inventory.Api` (todavía no se generó ninguna migración).
-3. `dotnet ef database update` (mismo `--project`/`--startup-project`).
+2. `dotnet ef database update --project src/Inventory.Infrastructure --startup-project src/Inventory.Api`.
 
 Verificado sin base de datos real: la API arranca igual, y cualquier
 endpoint que toque el `DbContext` responde el 500 genérico controlado (no
 crashea) — el pipeline de errores ya se probó de punta a punta así.
+
+⚠️ **Migración pendiente de generar (unificación de sesiones, 2026-09-16)**: ya existen
+4 migraciones (`InicialRbac` … `AgregarRolSolicitanteYPermisoInicio`), pero ninguna
+cubre el catálogo `Unidad` ni las columnas `...Id`/`...Nombre` (FK + snapshot) agregadas
+en "Unidades de medida como catálogo" y "Quién hizo cada cosa" más arriba — esos cambios
+de modelo se escribieron en una sesión que nunca corrió `dotnet ef migrations add` (sin
+SDK de .NET en este entorno tampoco se pudo generar acá). Antes de `database update`,
+generar la migración que falta:
+`dotnet ef migrations add AgregarUnidadYUsuarioActuante --project src/Inventory.Infrastructure --startup-project src/Inventory.Api`,
+revisar el `.cs` generado (altas de la tabla `Unidad` + columnas nuevas con sus FK en
+`Movimiento`/`Solicitud`/`Conteo`/`Auditoria`) antes de aplicarla.
 
 ## Comandos
 

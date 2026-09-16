@@ -9,7 +9,8 @@ public record SolicitudDetalleDto(
 
 public record SolicitudDto(
     int Id, string NumeroSolicitud, int AreaId, string AreaNombre, EstadoSolicitud Estado,
-    DateTime FechaSolicitud, string SolicitadoPor, string? AprobadoPor, DateTime? FechaResolucion,
+    DateTime FechaSolicitud, int SolicitadoPorId, string SolicitadoPor,
+    int? AprobadoPorId, string? AprobadoPor, DateTime? FechaResolucion,
     string? MotivoRechazo, IReadOnlyList<SolicitudDetalleDto> Detalles
 );
 
