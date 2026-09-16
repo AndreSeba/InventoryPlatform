@@ -19,7 +19,8 @@ public class RolConfiguration : IEntityTypeConfiguration<Rol>
         builder.HasData(
             new Rol { Id = RolPermisoConfiguration.RolAdministradorId, Nombre = "Administrador", Descripcion = "Acceso completo, incluida la gestión de usuarios y roles.", Activo = true },
             new Rol { Id = RolPermisoConfiguration.RolOperadorId, Nombre = "Operador", Descripcion = "Opera el día a día: productos, movimientos, solicitudes y conteo. Sin gestión de catálogos ni usuarios.", Activo = true },
-            new Rol { Id = RolPermisoConfiguration.RolConsultaId, Nombre = "Consulta", Descripcion = "Solo lectura en todos los módulos.", Activo = true }
+            new Rol { Id = RolPermisoConfiguration.RolConsultaId, Nombre = "Consulta", Descripcion = "Solo lectura en todos los módulos.", Activo = true },
+            new Rol { Id = RolPermisoConfiguration.RolSolicitanteId, Nombre = "Solicitante", Descripcion = "Solo puede crear y ver sus propias solicitudes de material.", Activo = true }
         );
     }
 }

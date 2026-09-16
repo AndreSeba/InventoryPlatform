@@ -42,6 +42,8 @@ public static class Permisos
     public const string CategoriasEditar = "categorias.editar";
     public const string AreasEditar = "areas.editar";
 
+    public const string InicioVer = "inicio.ver";
+
     public static readonly IReadOnlyList<(string Codigo, string Modulo, string Descripcion)> Catalogo =
     [
         (ProductosVer, "Productos", "Ver el catálogo de productos y su existencia"),
@@ -82,5 +84,8 @@ public static class Permisos
         // todo lo que viene después y rompería el mapeo contra una base ya sembrada.
         (CategoriasEditar, "Categorías", "Editar categorías existentes"),
         (AreasEditar, "Áreas", "Editar áreas existentes"),
+
+        // Agregado 2026-09-15, también al final por la misma razón que el bloque de arriba.
+        (InicioVer, "Inicio", "Ver el panel de inicio con indicadores generales"),
     ];
 }

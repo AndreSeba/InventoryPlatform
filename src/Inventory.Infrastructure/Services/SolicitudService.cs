@@ -28,6 +28,24 @@ public class SolicitudService : ISolicitudService
         return solicitudes.Select(ASolicitudDto).ToList();
     }
 
+    // Mismo filtro por estado que ListarAsync, más SolicitadoPor == usuarioId — usada por
+    // el rol Solicitante, que no tiene permiso para ver las de todos (ver Permisos.InicioVer
+    // y RolPermisoConfiguration.PermisosSolicitante).
+    public async Task<IReadOnlyList<SolicitudDto>> ListarMiasAsync(string usuarioId, string? estado, CancellationToken ct)
+    {
+        var query = _db.Solicitudes.AsNoTracking()
+            .Include(s => s.Area)
+            .Include(s => s.Detalles).ThenInclude(d => d.Producto)
+            .Where(s => s.SolicitadoPor == usuarioId)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(estado) && Enum.TryParse<EstadoSolicitud>(estado, true, out var estadoEnum))
+            query = query.Where(s => s.Estado == estadoEnum);
+
+        var solicitudes = await query.OrderByDescending(s => s.FechaSolicitud).ToListAsync(ct);
+        return solicitudes.Select(ASolicitudDto).ToList();
+    }
+
     public async Task<SolicitudDto> ObtenerPorIdAsync(int id, CancellationToken ct)
     {
         var solicitud = await _db.Solicitudes.AsNoTracking()

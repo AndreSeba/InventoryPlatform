@@ -20,12 +20,32 @@ public class SolicitudesController : ControllerBase
     public async Task<ActionResult<IReadOnlyList<SolicitudDto>>> Listar([FromQuery] string? estado, CancellationToken ct)
         => Ok(await _solicitudService.ListarAsync(estado, ct));
 
+    // Para el rol Solicitante (solo solicitudes.crear, sin solicitudes.ver) — la pantalla
+    // "Mis solicitudes" del frontend pega acá en vez de a Listar().
+    [HttpGet("mias")]
+    [Authorize(Policy = Permisos.SolicitudesCrear)]
+    public async Task<ActionResult<IReadOnlyList<SolicitudDto>>> ListarMias([FromQuery] string? estado, CancellationToken ct)
+        => Ok(await _solicitudService.ListarMiasAsync(UsuarioActual(), estado, ct));
+
+    // Sin [Authorize(Policy = SolicitudesVer)] a propósito: alguien con solo
+    // solicitudes.crear (rol Solicitante) tiene que poder abrir el detalle de SU PROPIA
+    // solicitud (para imprimirla, ver su estado) sin tener permiso para ver las de todos.
+    // El chequeo de abajo cubre los dos casos: quien puede ver todas, o el dueño.
     [HttpGet("{id:int}")]
-    [Authorize(Policy = Permisos.SolicitudesVer)]
     [ProducesResponseType(typeof(SolicitudDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<SolicitudDto>> ObtenerPorId(int id, CancellationToken ct)
-        => Ok(await _solicitudService.ObtenerPorIdAsync(id, ct));
+    {
+        var solicitud = await _solicitudService.ObtenerPorIdAsync(id, ct);
+
+        var puedeVerTodas = User.HasClaim("permiso", Permisos.SolicitudesVer);
+        var esDueño = solicitud.SolicitadoPor == UsuarioActual();
+        if (!puedeVerTodas && !esDueño)
+            return Forbid();
+
+        return Ok(solicitud);
+    }
 
     [HttpPost]
     [Authorize(Policy = Permisos.SolicitudesCrear)]
