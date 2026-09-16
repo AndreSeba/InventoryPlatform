@@ -176,6 +176,21 @@ public class ProductoService : IProductoService
         return (producto.ImagenData, producto.ImagenContentType ?? "application/octet-stream");
     }
 
+    // Usado por Movimientos (Salida/Ajuste negativo) y por Conteo físico para no dejar
+    // elegir/generar una fila en una ubicación donde este producto no tiene nada guardado.
+    // Mismo criterio de agregación que MovimientoService.CalcularExistenciaEnUbicacionAsync,
+    // acá agrupado por TODAS las ubicaciones del producto de una sola pasada.
+    public async Task<IReadOnlyList<UbicacionConExistenciaDto>> ListarUbicacionesConStockAsync(int productoId, CancellationToken ct)
+    {
+        return await _db.Movimientos.AsNoTracking()
+            .Where(m => m.ProductoId == productoId)
+            .GroupBy(m => new { m.UbicacionId, m.Ubicacion!.CodigoUbicacion })
+            .Where(g => g.Sum(m => m.CantidadEfectiva) > 0)
+            .OrderBy(g => g.Key.CodigoUbicacion)
+            .Select(g => new UbicacionConExistenciaDto(g.Key.UbicacionId, g.Key.CodigoUbicacion, g.Sum(m => m.CantidadEfectiva)))
+            .ToListAsync(ct);
+    }
+
     // CERE-01: primeras 4 letras del código de categoría + correlativo de 2 dígitos.
     // Cuenta TODOS los productos de la categoría (activos e inactivos) para que el
     // correlativo nunca retroceda ni se repita si alguno se desactiva.

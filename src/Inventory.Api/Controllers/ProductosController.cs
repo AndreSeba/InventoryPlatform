@@ -89,6 +89,14 @@ public class ProductosController : ControllerBase
         return NoContent();
     }
 
+    // Usado por Movimientos (Salida/Ajuste negativo) y Conteo físico para no dejar elegir
+    // una ubicación donde este producto no tiene nada guardado.
+    [HttpGet("{id:int}/ubicaciones")]
+    [Authorize(Policy = Permisos.ProductosVer)]
+    [ProducesResponseType(typeof(IReadOnlyList<UbicacionConExistenciaDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<UbicacionConExistenciaDto>>> ListarUbicaciones(int id, CancellationToken ct)
+        => Ok(await _productoService.ListarUbicacionesConStockAsync(id, ct));
+
     [HttpGet("siguiente-codigo")]
     [Authorize(Policy = Permisos.ProductosCrear)]
     [ProducesResponseType(typeof(SiguienteCodigoDto), StatusCodes.Status200OK)]

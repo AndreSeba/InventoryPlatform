@@ -89,16 +89,19 @@ public class ConteoService : IConteoService
     }
 
     // Fila donde arranca el encabezado de la tabla de productos en la hoja generada
-    // (deja lugar arriba para el título y los datos de sesión/ubicación/fecha) — el
-    // importador lee con este mismo número, así que si se mueve acá hay que moverlo allá.
+    // (deja lugar arriba para el título y los datos de sesión/fecha) — el importador lee
+    // con este mismo número, así que si se mueve acá hay que moverlo allá.
     private const int FilaEncabezado = 5;
+    private const int ColumnasExcel = 9;
 
+    // Sin ubicación como filtro de entrada (2026-09-15, pedido del operario): se eligen
+    // PRODUCTOS, y la hoja arma una fila por cada (producto, ubicación) donde ese producto
+    // tiene stock ahora mismo — un producto guardado en 3 racks genera 3 filas. Reusa el
+    // mismo criterio de "dónde tiene stock" que ProductoService.ListarUbicacionesConStockAsync,
+    // pero de una sola consulta agrupada para todos los productos elegidos a la vez.
     public async Task<(byte[] Contenido, string NombreArchivo, string SesionConteo)> GenerarHojaConteoAsync(GenerarHojaConteoDto dto, CancellationToken ct)
     {
-        var ubicacion = await _db.Ubicaciones.FirstOrDefaultAsync(u => u.Id == dto.UbicacionId && u.Activo, ct)
-            ?? throw new UbicacionNoEncontradaException(dto.UbicacionId);
-
-        var query = _db.Productos.AsNoTracking().Where(p => p.Activo);
+        var query = _db.Productos.AsNoTracking().Include(p => p.Categoria).Where(p => p.Activo);
         if (dto.ProductoIds is { Count: > 0 })
             query = query.Where(p => dto.ProductoIds.Contains(p.Id));
         else if (dto.CategoriaId is not null)
@@ -109,57 +112,64 @@ public class ConteoService : IConteoService
             throw new ArchivoInvalidoException("No hay productos activos para generar la hoja de conteo con ese filtro.");
 
         var productoIds = productos.Select(p => p.Id).ToList();
-        var existencias = await _db.Movimientos
-            .Where(m => m.UbicacionId == dto.UbicacionId && productoIds.Contains(m.ProductoId))
-            .GroupBy(m => m.ProductoId)
-            .Select(g => new { ProductoId = g.Key, Existencia = g.Sum(m => m.CantidadEfectiva) })
-            .ToDictionaryAsync(x => x.ProductoId, x => x.Existencia, ct);
 
-        var sesionConteo = $"CONTEO-{ubicacion.CodigoUbicacion}-{DateTime.UtcNow:yyyyMMdd-HHmmss}";
+        var filas = await _db.Movimientos.AsNoTracking()
+            .Where(m => productoIds.Contains(m.ProductoId))
+            .GroupBy(m => new { m.ProductoId, m.UbicacionId, m.Ubicacion!.CodigoUbicacion })
+            .Where(g => g.Sum(m => m.CantidadEfectiva) > 0)
+            .Select(g => new { g.Key.ProductoId, g.Key.UbicacionId, g.Key.CodigoUbicacion, Existencia = g.Sum(m => m.CantidadEfectiva) })
+            .ToListAsync(ct);
+
+        if (filas.Count == 0)
+            throw new ArchivoInvalidoException("Ninguno de los productos elegidos tiene stock en alguna ubicación.");
+
+        var productosPorId = productos.ToDictionary(p => p.Id);
+        var sesionConteo = $"CONTEO-{DateTime.UtcNow:yyyyMMdd-HHmmss}";
 
         using var libro = new XLWorkbook();
         var hoja = libro.Worksheets.Add("Conteo");
 
         hoja.Cell(1, 1).Value = "Hoja de Conteo Físico";
-        hoja.Range(1, 1, 1, 6).Merge();
+        hoja.Range(1, 1, 1, ColumnasExcel).Merge();
         hoja.Cell(1, 1).Style.Font.Bold = true;
         hoja.Cell(1, 1).Style.Font.FontSize = 14;
 
         hoja.Cell(2, 1).Value = "Sesión:";
         hoja.Cell(2, 1).Style.Font.Bold = true;
         hoja.Cell(2, 2).Value = sesionConteo;
-        hoja.Cell(2, 4).Value = "Ubicación:";
-        hoja.Cell(2, 4).Style.Font.Bold = true;
-        hoja.Cell(2, 5).Value = ubicacion.CodigoUbicacion;
         hoja.Cell(3, 1).Value = "Fecha:";
         hoja.Cell(3, 1).Style.Font.Bold = true;
         hoja.Cell(3, 2).Value = DateTime.Now.ToString("dd/MM/yyyy HH:mm");
 
-        hoja.Cell(FilaEncabezado, 1).Value = "ProductoId";
-        hoja.Cell(FilaEncabezado, 2).Value = "Código";
-        hoja.Cell(FilaEncabezado, 3).Value = "Nombre";
-        hoja.Cell(FilaEncabezado, 4).Value = "Unidad";
-        hoja.Cell(FilaEncabezado, 5).Value = "Existencia Sistema";
-        hoja.Cell(FilaEncabezado, 6).Value = "Cantidad Contada";
-        var rangoEncabezado = hoja.Range(FilaEncabezado, 1, FilaEncabezado, 6);
+        string[] encabezados = ["ProductoId", "UbicacionId", "Código", "Producto", "Categoría", "Unidad", "Ubicación", "Existencia Sistema", "Cantidad Contada"];
+        for (var col = 0; col < encabezados.Length; col++)
+            hoja.Cell(FilaEncabezado, col + 1).Value = encabezados[col];
+
+        var rangoEncabezado = hoja.Range(FilaEncabezado, 1, FilaEncabezado, ColumnasExcel);
         rangoEncabezado.Style.Font.Bold = true;
         rangoEncabezado.Style.Fill.BackgroundColor = XLColor.FromHtml("#E2E8F0");
         rangoEncabezado.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
         var fila = FilaEncabezado + 1;
-        foreach (var p in productos)
+        foreach (var f in filas.OrderBy(x => productosPorId[x.ProductoId].Nombre).ThenBy(x => x.CodigoUbicacion))
         {
-            hoja.Cell(fila, 1).Value = p.Id;
-            hoja.Cell(fila, 2).Value = p.CodigoProducto;
-            hoja.Cell(fila, 3).Value = p.Nombre;
-            hoja.Cell(fila, 4).Value = p.UnidadMedida;
-            hoja.Cell(fila, 5).Value = existencias.TryGetValue(p.Id, out var ex) ? ex : 0m;
-            hoja.Range(fila, 1, fila, 6).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+            var producto = productosPorId[f.ProductoId];
+            hoja.Cell(fila, 1).Value = f.ProductoId;
+            hoja.Cell(fila, 2).Value = f.UbicacionId;
+            hoja.Cell(fila, 3).Value = producto.CodigoProducto;
+            hoja.Cell(fila, 4).Value = producto.Nombre;
+            hoja.Cell(fila, 5).Value = producto.Categoria?.CodigoCategoria ?? "";
+            hoja.Cell(fila, 6).Value = producto.UnidadMedida;
+            hoja.Cell(fila, 7).Value = f.CodigoUbicacion;
+            hoja.Cell(fila, 8).Value = f.Existencia;
+            hoja.Cell(fila, 8).Style.NumberFormat.Format = "#,##0.00";
+            hoja.Range(fila, 1, fila, ColumnasExcel).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
             fila++;
         }
 
         hoja.Column(1).Hide();
-        hoja.Columns(2, 6).AdjustToContents();
+        hoja.Column(2).Hide();
+        hoja.Columns(3, ColumnasExcel).AdjustToContents();
         hoja.SheetView.FreezeRows(FilaEncabezado);
         hoja.PageSetup.PageOrientation = XLPageOrientation.Portrait;
         hoja.PageSetup.FitToPages(1, 0);
@@ -168,7 +178,7 @@ public class ConteoService : IConteoService
         using var stream = new MemoryStream();
         libro.SaveAs(stream);
 
-        var nombreArchivo = $"ConteoFisico_{ubicacion.CodigoUbicacion}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.xlsx";
+        var nombreArchivo = $"ConteoFisico_{DateTime.UtcNow:yyyyMMdd_HHmmss}.xlsx";
         return (stream.ToArray(), nombreArchivo, sesionConteo);
     }
 
@@ -190,25 +200,25 @@ public class ConteoService : IConteoService
                 ?? throw new ArchivoInvalidoException("El archivo no tiene ninguna hoja.");
 
             var sesionConteo = hoja.Cell(2, 2).GetString().Trim();
-            var ubicacionCodigo = hoja.Cell(2, 5).GetString().Trim();
-            if (string.IsNullOrWhiteSpace(sesionConteo) || string.IsNullOrWhiteSpace(ubicacionCodigo))
+            if (string.IsNullOrWhiteSpace(sesionConteo))
                 throw new ArchivoInvalidoException("El archivo no tiene el formato de la hoja de conteo generada por el sistema.");
 
-            var ubicacion = await _db.Ubicaciones.FirstOrDefaultAsync(u => u.CodigoUbicacion == ubicacionCodigo && u.Activo, ct)
-                ?? throw new ArchivoInvalidoException($"No existe (o está inactiva) la ubicación '{ubicacionCodigo}' de esta hoja.");
-
-            var contados = new List<(int ProductoId, decimal Cantidad)>();
+            // La ubicación ahora viaja por FILA (columna oculta 2), no en el encabezado —
+            // cada fila puede ser de una ubicación distinta desde que se sacó el filtro
+            // de ubicación única al generar la hoja.
+            var contados = new List<(int ProductoId, int UbicacionId, decimal Cantidad)>();
             var fila = FilaEncabezado + 1;
             while (!hoja.Cell(fila, 1).IsEmpty())
             {
-                var celdaCantidad = hoja.Cell(fila, 6);
+                var celdaCantidad = hoja.Cell(fila, 9);
                 if (!celdaCantidad.IsEmpty())
                 {
                     var productoId = hoja.Cell(fila, 1).GetValue<int>();
+                    var ubicacionId = hoja.Cell(fila, 2).GetValue<int>();
                     var cantidad = celdaCantidad.GetValue<decimal>();
                     if (cantidad < 0)
                         throw new ArchivoInvalidoException($"La cantidad contada en la fila {fila} no puede ser negativa.");
-                    contados.Add((productoId, cantidad));
+                    contados.Add((productoId, ubicacionId, cantidad));
                 }
                 fila++;
             }
@@ -217,16 +227,16 @@ public class ConteoService : IConteoService
                 throw new ArchivoInvalidoException("No se cargó ninguna cantidad contada en el archivo.");
 
             var conDiferencia = new List<ConteoDto>();
-            foreach (var (productoId, cantidad) in contados)
+            foreach (var (productoId, ubicacionId, cantidad) in contados)
             {
                 var ultimoNumero = await _db.Conteos
-                    .Where(c => c.SesionConteo == sesionConteo && c.ProductoId == productoId && c.UbicacionId == ubicacion.Id)
+                    .Where(c => c.SesionConteo == sesionConteo && c.ProductoId == productoId && c.UbicacionId == ubicacionId)
                     .OrderByDescending(c => c.NumeroConteo)
                     .Select(c => (int?)c.NumeroConteo)
                     .FirstOrDefaultAsync(ct);
 
                 var registrado = await RegistrarAsync(
-                    new RegistrarConteoDto(sesionConteo, productoId, ubicacion.Id, (ultimoNumero ?? 0) + 1, cantidad),
+                    new RegistrarConteoDto(sesionConteo, productoId, ubicacionId, (ultimoNumero ?? 0) + 1, cantidad),
                     usuarioId, ct);
 
                 if (registrado.Diferencia != 0)

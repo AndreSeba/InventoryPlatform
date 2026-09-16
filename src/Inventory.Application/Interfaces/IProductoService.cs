@@ -11,4 +11,5 @@ public interface IProductoService
     Task<ProductoDto> ActualizarAsync(int id, ActualizarProductoDto dto, string usuarioId, CancellationToken ct);
     Task DesactivarAsync(int id, string usuarioId, CancellationToken ct);
     Task<(byte[] Datos, string ContentType)> ObtenerImagenAsync(int id, CancellationToken ct);
+    Task<IReadOnlyList<UbicacionConExistenciaDto>> ListarUbicacionesConStockAsync(int productoId, CancellationToken ct);
 }

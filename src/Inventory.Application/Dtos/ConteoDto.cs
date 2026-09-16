@@ -11,7 +11,10 @@ public record RegistrarConteoDto(
     string SesionConteo, int ProductoId, int UbicacionId, int NumeroConteo, decimal CantidadContada
 );
 
-public record GenerarHojaConteoDto(int UbicacionId, int? CategoriaId, List<int>? ProductoIds);
+// Sin UbicacionId a propósito (2026-09-15, pedido del operario): el operario elige
+// PRODUCTOS, no ubicaciones — el sistema arma una fila por cada (producto, ubicación)
+// donde ese producto realmente tiene stock (ver ProductoService.ListarUbicacionesConStockAsync).
+public record GenerarHojaConteoDto(int? CategoriaId, List<int>? ProductoIds);
 
 public record ImportarHojaConteoResultadoDto(
     string SesionConteo, int ProductosContados, IReadOnlyList<ConteoDto> ConDiferencia

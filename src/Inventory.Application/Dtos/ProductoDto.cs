@@ -45,3 +45,8 @@ public record ActualizarProductoDto(
 );
 
 public record SiguienteCodigoDto(string Codigo);
+
+// Usado por Movimientos (Salida/Ajuste negativo) y Conteo físico para no dejar elegir una
+// ubicación donde el producto no tiene nada guardado — solo se listan las que tienen
+// Existencia > 0 en este momento.
+public record UbicacionConExistenciaDto(int UbicacionId, string UbicacionCodigo, decimal Existencia);
