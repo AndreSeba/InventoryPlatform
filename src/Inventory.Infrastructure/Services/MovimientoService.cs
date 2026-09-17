@@ -18,8 +18,16 @@ public class MovimientoService : IMovimientoService
     public Task<MovimientoResultadoDto> RegistrarEntradaAsync(RegistrarEntradaDto dto, UsuarioActuante usuario, CancellationToken ct) =>
         EjecutarAsync(async (producto, ubicacion, tx) =>
         {
+            var detalle = await ValidarDetalleParaEntregaAsync(dto.SolicitudDetalleId, dto.Cantidad, ct);
+
             var movimiento = NuevoMovimiento(producto.Id, TipoMovimiento.Entrada, dto.Cantidad, dto.Cantidad, ubicacion.Id, usuario, dto.Motivo);
+            movimiento.SolicitudDetalleId = detalle?.Id;
+
             await GuardarConNumeroAsync(movimiento, "MOV", ct);
+
+            if (detalle is not null)
+                await AcumularEntregaAsync(detalle, dto.Cantidad, ct);
+
             return movimiento;
         }, dto.ProductoId, dto.UbicacionId, ct);
 
@@ -33,20 +41,7 @@ public class MovimientoService : IMovimientoService
             if (dto.Cantidad > existenciaUbicacion)
                 throw new StockInsuficienteException($"{producto.CodigoProducto} en {ubicacion.CodigoUbicacion}", existenciaUbicacion, dto.Cantidad);
 
-            SolicitudDetalle? detalle = null;
-            if (dto.SolicitudDetalleId is not null)
-            {
-                detalle = await _db.SolicitudDetalles.Include(d => d.Solicitud)
-                    .FirstOrDefaultAsync(d => d.Id == dto.SolicitudDetalleId, ct)
-                    ?? throw new SolicitudEstadoInvalidoException($"No existe la línea de solicitud {dto.SolicitudDetalleId}.");
-
-                if (detalle.CantidadAprobada is null)
-                    throw new SolicitudEstadoInvalidoException("La línea de solicitud todavía no fue aprobada.");
-
-                var pendiente = detalle.CantidadAprobada.Value - detalle.CantidadEntregada;
-                if (dto.Cantidad > pendiente)
-                    throw new SolicitudEstadoInvalidoException($"La salida ({dto.Cantidad}) supera lo pendiente de entregar en la solicitud ({pendiente}).");
-            }
+            var detalle = await ValidarDetalleParaEntregaAsync(dto.SolicitudDetalleId, dto.Cantidad, ct);
 
             var movimiento = NuevoMovimiento(producto.Id, TipoMovimiento.Salida, dto.Cantidad, -dto.Cantidad, ubicacion.Id, usuario, dto.Motivo);
             movimiento.Retorna = dto.Retorna;
@@ -101,7 +96,7 @@ public class MovimientoService : IMovimientoService
 
         var yaDevuelto = await _db.Movimientos
             .Where(m => m.MovimientoOrigenId == origen.Id)
-            .SumAsync(m => (decimal?)m.Cantidad, ct) ?? 0m;
+            .SumAsync(m => (int?)m.Cantidad, ct) ?? 0;
 
         if (yaDevuelto + dto.Cantidad > origen.Cantidad)
             throw new MovimientoOrigenInvalidoException(
@@ -234,7 +229,7 @@ public class MovimientoService : IMovimientoService
             hoja.Cell(fila, 5).Value = m.Producto?.Categoria?.CodigoCategoria ?? "";
             hoja.Cell(fila, 6).Value = EtiquetaTipo(m.TipoMovimiento);
             hoja.Cell(fila, 7).Value = m.Cantidad;
-            hoja.Cell(fila, 7).Style.NumberFormat.Format = "#,##0.00";
+            hoja.Cell(fila, 7).Style.NumberFormat.Format = "#,##0";
             hoja.Cell(fila, 8).Value = m.Ubicacion?.CodigoUbicacion ?? "";
             hoja.Cell(fila, 9).Value = m.TipoMovimiento == TipoMovimiento.Salida ? (m.Retorna ? "Sí" : "No") : "";
             hoja.Cell(fila, 10).Value = m.RegistradoPorNombre;
@@ -312,7 +307,7 @@ public class MovimientoService : IMovimientoService
         return new MovimientoResultadoDto(movimiento.Id, movimiento.NumeroMovimiento, "CONFIRMADO", movimiento.FechaMovimiento, existenciaResultante);
     }
 
-    private static Movimiento NuevoMovimiento(int productoId, TipoMovimiento tipo, decimal cantidad, decimal cantidadEfectiva, int ubicacionId, UsuarioActuante usuario, string? motivo) => new()
+    private static Movimiento NuevoMovimiento(int productoId, TipoMovimiento tipo, int cantidad, int cantidadEfectiva, int ubicacionId, UsuarioActuante usuario, string? motivo) => new()
     {
         ProductoId = productoId,
         TipoMovimiento = tipo,
@@ -338,7 +333,28 @@ public class MovimientoService : IMovimientoService
         await _db.SaveChangesAsync(ct);
     }
 
-    private async Task AcumularEntregaAsync(SolicitudDetalle detalle, decimal cantidadEntregada, CancellationToken ct)
+    // Validación compartida por RegistrarEntradaAsync/RegistrarSalidaAsync cuando el
+    // movimiento cierra una línea de Solicitud: la línea debe estar aprobada y la cantidad
+    // no puede superar lo que todavía falta entregar (CantidadAprobada - CantidadEntregada).
+    private async Task<SolicitudDetalle?> ValidarDetalleParaEntregaAsync(int? solicitudDetalleId, int cantidad, CancellationToken ct)
+    {
+        if (solicitudDetalleId is null) return null;
+
+        var detalle = await _db.SolicitudDetalles.Include(d => d.Solicitud)
+            .FirstOrDefaultAsync(d => d.Id == solicitudDetalleId, ct)
+            ?? throw new SolicitudEstadoInvalidoException($"No existe la línea de solicitud {solicitudDetalleId}.");
+
+        if (detalle.CantidadAprobada is null)
+            throw new SolicitudEstadoInvalidoException("La línea de solicitud todavía no fue aprobada.");
+
+        var pendiente = detalle.CantidadAprobada.Value - detalle.CantidadEntregada;
+        if (cantidad > pendiente)
+            throw new SolicitudEstadoInvalidoException($"La cantidad ({cantidad}) supera lo pendiente de entregar en la solicitud ({pendiente}).");
+
+        return detalle;
+    }
+
+    private async Task AcumularEntregaAsync(SolicitudDetalle detalle, int cantidadEntregada, CancellationToken ct)
     {
         detalle.CantidadEntregada += cantidadEntregada;
 
@@ -351,12 +367,12 @@ public class MovimientoService : IMovimientoService
         await _db.SaveChangesAsync(ct);
     }
 
-    private async Task<decimal> CalcularExistenciaTotalAsync(int productoId, CancellationToken ct) =>
-        await _db.Movimientos.Where(m => m.ProductoId == productoId).SumAsync(m => (decimal?)m.CantidadEfectiva, ct) ?? 0m;
+    private async Task<int> CalcularExistenciaTotalAsync(int productoId, CancellationToken ct) =>
+        await _db.Movimientos.Where(m => m.ProductoId == productoId).SumAsync(m => (int?)m.CantidadEfectiva, ct) ?? 0;
 
-    private async Task<decimal> CalcularExistenciaEnUbicacionAsync(int productoId, int ubicacionId, CancellationToken ct) =>
+    private async Task<int> CalcularExistenciaEnUbicacionAsync(int productoId, int ubicacionId, CancellationToken ct) =>
         await _db.Movimientos.Where(m => m.ProductoId == productoId && m.UbicacionId == ubicacionId)
-            .SumAsync(m => (decimal?)m.CantidadEfectiva, ct) ?? 0m;
+            .SumAsync(m => (int?)m.CantidadEfectiva, ct) ?? 0;
 
     private static MovimientoDto AMovimientoDto(Movimiento m) => new(
         m.Id, m.NumeroMovimiento, m.ProductoId, m.Producto?.Nombre ?? string.Empty, m.TipoMovimiento, m.Cantidad,

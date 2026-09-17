@@ -236,11 +236,11 @@ public class ProductoService : IProductoService
         return $"{prefijo}-{(cantidadEnCategoria + 1):D2}";
     }
 
-    private async Task<decimal> CalcularExistenciaAsync(int productoId, CancellationToken ct)
+    private async Task<int> CalcularExistenciaAsync(int productoId, CancellationToken ct)
     {
         return await _db.Movimientos
             .Where(m => m.ProductoId == productoId)
-            .SumAsync(m => (decimal?)m.CantidadEfectiva, ct) ?? 0m;
+            .SumAsync(m => (int?)m.CantidadEfectiva, ct) ?? 0;
     }
 
     private async Task<List<ProductoDto>> MapearConExistenciaAsync(List<Producto> productos, CancellationToken ct)
@@ -257,7 +257,7 @@ public class ProductoService : IProductoService
             .ToDictionaryAsync(x => x.ProductoId, x => x.Existencia, ct);
 
         return productos.Select(p =>
-            AProductoDto(p, existenciaPorProducto.TryGetValue(p.Id, out var e) ? e : 0m)
+            AProductoDto(p, existenciaPorProducto.TryGetValue(p.Id, out var e) ? e : 0)
         ).ToList();
     }
 
@@ -281,9 +281,9 @@ public class ProductoService : IProductoService
             throw new ArchivoInvalidoException("Formato no permitido. Usá JPG, PNG o WEBP.");
     }
 
-    private static ProductoDto AProductoDto(Producto p, decimal existencia) => AProductoDto(p, p.Categoria!, existencia);
+    private static ProductoDto AProductoDto(Producto p, int existencia) => AProductoDto(p, p.Categoria!, existencia);
 
-    private static ProductoDto AProductoDto(Producto p, Categoria categoria, decimal existencia) => new(
+    private static ProductoDto AProductoDto(Producto p, Categoria categoria, int existencia) => new(
         p.Id, p.ClaveProducto, p.CodigoProducto, p.Nombre, p.CategoriaId, categoria.CodigoCategoria,
         p.UnidadMedida, p.CostoUnitario, p.StockMinimo, p.Detalle,
         p.ImagenData is not null ? $"/api/productos/{p.Id}/imagen" : null,

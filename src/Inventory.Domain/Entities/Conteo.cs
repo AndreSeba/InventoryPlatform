@@ -12,7 +12,7 @@ public class Conteo
     public Ubicacion? Ubicacion { get; set; }
 
     public int NumeroConteo { get; set; } // 1, 2, 3... permite reconteos
-    public decimal CantidadContada { get; set; }
+    public int CantidadContada { get; set; }
     public int ContadoPorId { get; set; }
     public Usuario? ContadoPor { get; set; }
     // Snapshot del nombre al momento de la operación (denormalización DELIBERADA,

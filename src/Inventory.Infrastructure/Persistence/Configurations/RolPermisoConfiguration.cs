@@ -43,10 +43,15 @@ public class RolPermisoConfiguration : IEntityTypeConfiguration<RolPermiso>
     // solicitud (elegir producto y área) y ver el detalle de la propia (que carga
     // ubicaciones para el combo de entrega, aunque este rol no pueda entregar) — no es
     // que puedan gestionar esos catálogos, solo leerlos.
+    // CategoriasVer/UnidadesVer se agregaron 2026-09-17 (pedido explícito): el carrito de
+    // Entrada deja dar de alta un producto nuevo sobre la marcha (ver
+    // ProductosController.CrearRapido, gateado por solicitudes.crear) y ese alta necesita
+    // elegir Categoria + Unidad — sin estos permisos esos selectores quedan vacíos.
     private static readonly string[] PermisosSolicitante =
     [
         Permisos.SolicitudesCrear,
         Permisos.ProductosVer, Permisos.AreasVer, Permisos.UbicacionesVer,
+        Permisos.CategoriasVer, Permisos.UnidadesVer,
     ];
 
     public void Configure(EntityTypeBuilder<RolPermiso> builder)

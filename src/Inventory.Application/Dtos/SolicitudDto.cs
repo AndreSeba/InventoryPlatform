@@ -4,21 +4,28 @@ namespace Inventory.Application.Dtos;
 
 public record SolicitudDetalleDto(
     int Id, int ProductoId, string ProductoNombre, string ProductoCodigo, string UnidadMedida, decimal? CostoUnitario,
-    decimal CantidadSolicitada, decimal? CantidadAprobada, decimal CantidadEntregada
+    int CantidadSolicitada, int? CantidadAprobada, int CantidadEntregada
 );
 
 public record SolicitudDto(
-    int Id, string NumeroSolicitud, int AreaId, string AreaNombre, EstadoSolicitud Estado,
+    int Id, string NumeroSolicitud, int AreaId, string AreaNombre, TipoSolicitud Tipo, EstadoSolicitud Estado,
     DateTime FechaSolicitud, int SolicitadoPorId, string SolicitadoPor,
     int? AprobadoPorId, string? AprobadoPor, DateTime? FechaResolucion,
     string? MotivoRechazo, IReadOnlyList<SolicitudDetalleDto> Detalles
 );
 
-public record CrearSolicitudDetalleDto(int ProductoId, decimal CantidadSolicitada);
+public record CrearSolicitudDetalleDto(int ProductoId, int CantidadSolicitada);
 
-public record CrearSolicitudDto(int AreaId, IReadOnlyList<CrearSolicitudDetalleDto> Detalles);
+public record CrearSolicitudDto(int AreaId, TipoSolicitud Tipo, IReadOnlyList<CrearSolicitudDetalleDto> Detalles);
 
-public record AprobarSolicitudDetalleDto(int SolicitudDetalleId, decimal CantidadAprobada);
+// Un grupo por encargado de categoría involucrado en la solicitud — ver
+// ISolicitudNotificationService. Dos categorías con el mismo encargado se funden en un
+// solo grupo (una sola notificación, con todas sus líneas).
+public record EncargadoNotificacionDto(
+    int EncargadoId, string EncargadoNombre, string EncargadoEmail, IReadOnlyList<SolicitudDetalleDto> Lineas
+);
+
+public record AprobarSolicitudDetalleDto(int SolicitudDetalleId, int CantidadAprobada);
 
 public record AprobarSolicitudDto(IReadOnlyList<AprobarSolicitudDetalleDto> Detalles);
 

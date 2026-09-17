@@ -10,6 +10,7 @@ public class Solicitud
     public int AreaId { get; set; }
     public Area? Area { get; set; }
 
+    public TipoSolicitud Tipo { get; set; }
     public EstadoSolicitud Estado { get; set; } = EstadoSolicitud.Pendiente;
     public DateTime FechaSolicitud { get; set; } = DateTime.UtcNow;
 

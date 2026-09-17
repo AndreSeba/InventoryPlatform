@@ -51,7 +51,7 @@ public class ConteoService : IConteoService
 
         var existenciaSistema = await _db.Movimientos
             .Where(m => m.ProductoId == producto.Id && m.UbicacionId == ubicacion.Id)
-            .SumAsync(m => (decimal?)m.CantidadEfectiva, ct) ?? 0m;
+            .SumAsync(m => (int?)m.CantidadEfectiva, ct) ?? 0;
 
         return new ConteoDto(
             conteo.Id, conteo.SesionConteo, conteo.ProductoId, producto.Nombre, conteo.UbicacionId,
@@ -71,12 +71,12 @@ public class ConteoService : IConteoService
         if (conteos.Count == 0) return [];
 
         var claves = conteos.Select(c => (c.ProductoId, c.UbicacionId)).Distinct().ToList();
-        var existencias = new Dictionary<(int, int), decimal>();
+        var existencias = new Dictionary<(int, int), int>();
         foreach (var (productoId, ubicacionId) in claves)
         {
             existencias[(productoId, ubicacionId)] = await _db.Movimientos
                 .Where(m => m.ProductoId == productoId && m.UbicacionId == ubicacionId)
-                .SumAsync(m => (decimal?)m.CantidadEfectiva, ct) ?? 0m;
+                .SumAsync(m => (int?)m.CantidadEfectiva, ct) ?? 0;
         }
 
         return conteos.Select(c =>
@@ -180,7 +180,7 @@ public class ConteoService : IConteoService
             hoja.Cell(fila, 6).Value = producto.UnidadMedida;
             hoja.Cell(fila, 7).Value = f.CodigoUbicacion;
             hoja.Cell(fila, 8).Value = f.Existencia;
-            hoja.Cell(fila, 8).Style.NumberFormat.Format = "#,##0.00";
+            hoja.Cell(fila, 8).Style.NumberFormat.Format = "#,##0";
 
             // Una sola línea fina abajo, como renglón para escribir la cantidad contada —
             // sin recuadros completos, que en papel vuelven la hoja ilegible.
@@ -252,7 +252,7 @@ public class ConteoService : IConteoService
             // La ubicación viaja por FILA (columna oculta 2), no en el encabezado — cada
             // fila puede ser de una ubicación distinta, porque la hoja se arma por producto
             // y no por ubicación única.
-            var contados = new List<(int ProductoId, int UbicacionId, decimal Cantidad)>();
+            var contados = new List<(int ProductoId, int UbicacionId, int Cantidad)>();
             var fila = FilaEncabezado + 1;
             while (!hoja.Cell(fila, 1).IsEmpty())
             {
@@ -261,7 +261,7 @@ public class ConteoService : IConteoService
                 {
                     var productoId = hoja.Cell(fila, 1).GetValue<int>();
                     var ubicacionId = hoja.Cell(fila, 2).GetValue<int>();
-                    var cantidad = celdaCantidad.GetValue<decimal>();
+                    var cantidad = celdaCantidad.GetValue<int>();
                     if (cantidad < 0)
                         throw new ArchivoInvalidoException($"La cantidad contada en la fila {fila} no puede ser negativa.");
                     contados.Add((productoId, ubicacionId, cantidad));

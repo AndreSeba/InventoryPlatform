@@ -15,11 +15,11 @@ public class CategoriaService : ICategoriaService
 
     public async Task<IReadOnlyList<CategoriaDto>> ListarAsync(bool incluirInactivas, CancellationToken ct)
     {
-        var query = _db.Categorias.AsNoTracking();
+        IQueryable<Categoria> query = _db.Categorias.AsNoTracking().Include(c => c.Encargado);
         if (!incluirInactivas) query = query.Where(c => c.Activo);
 
         return await query.OrderBy(c => c.CodigoCategoria)
-            .Select(c => new CategoriaDto(c.Id, c.CodigoCategoria, c.Descripcion, c.Activo))
+            .Select(c => new CategoriaDto(c.Id, c.CodigoCategoria, c.Descripcion, c.Activo, c.EncargadoId, c.Encargado!.NombreCompleto))
             .ToListAsync(ct);
     }
 
@@ -31,11 +31,13 @@ public class CategoriaService : ICategoriaService
         if (yaExiste)
             throw new CodigoCategoriaDuplicadoException(codigo);
 
-        var categoria = new Categoria { CodigoCategoria = codigo, Descripcion = dto.Descripcion, Activo = true };
+        var encargadoNombre = await ResolverEncargadoAsync(dto.EncargadoId, ct);
+
+        var categoria = new Categoria { CodigoCategoria = codigo, Descripcion = dto.Descripcion, EncargadoId = dto.EncargadoId, Activo = true };
         _db.Categorias.Add(categoria);
         await _db.SaveChangesAsync(ct);
 
-        return new CategoriaDto(categoria.Id, categoria.CodigoCategoria, categoria.Descripcion, categoria.Activo);
+        return new CategoriaDto(categoria.Id, categoria.CodigoCategoria, categoria.Descripcion, categoria.Activo, categoria.EncargadoId, encargadoNombre);
     }
 
     public async Task<CategoriaDto> ActualizarAsync(int id, ActualizarCategoriaDto dto, CancellationToken ct)
@@ -49,11 +51,24 @@ public class CategoriaService : ICategoriaService
         if (yaExiste)
             throw new CodigoCategoriaDuplicadoException(codigo);
 
+        var encargadoNombre = await ResolverEncargadoAsync(dto.EncargadoId, ct);
+
         categoria.CodigoCategoria = codigo;
         categoria.Descripcion = dto.Descripcion;
         categoria.Activo = dto.Activo;
+        categoria.EncargadoId = dto.EncargadoId;
 
         await _db.SaveChangesAsync(ct);
-        return new CategoriaDto(categoria.Id, categoria.CodigoCategoria, categoria.Descripcion, categoria.Activo);
+        return new CategoriaDto(categoria.Id, categoria.CodigoCategoria, categoria.Descripcion, categoria.Activo, categoria.EncargadoId, encargadoNombre);
+    }
+
+    private async Task<string?> ResolverEncargadoAsync(int? encargadoId, CancellationToken ct)
+    {
+        if (encargadoId is null) return null;
+
+        var usuario = await _db.Usuarios.AsNoTracking().FirstOrDefaultAsync(u => u.Id == encargadoId && u.Activo, ct)
+            ?? throw new UsuarioNoEncontradoException(encargadoId.Value);
+
+        return usuario.NombreCompleto;
     }
 }

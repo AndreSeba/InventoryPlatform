@@ -12,7 +12,7 @@ public class Producto
     public Categoria? Categoria { get; set; }
     public string UnidadMedida { get; set; } = string.Empty; // UNI / CAJA / PQTS
     public decimal? CostoUnitario { get; set; }
-    public decimal StockMinimo { get; set; }
+    public int StockMinimo { get; set; }
     public string? Detalle { get; set; }
 
     // Guardada en la fila, no en disco — evita que la imagen dependa de un archivo que

@@ -11,10 +11,6 @@ public class SolicitudDetalleConfiguration : IEntityTypeConfiguration<SolicitudD
         builder.ToTable("SolicitudDetalle");
         builder.HasKey(sd => sd.Id);
 
-        builder.Property(sd => sd.CantidadSolicitada).HasColumnType("decimal(18,3)");
-        builder.Property(sd => sd.CantidadAprobada).HasColumnType("decimal(18,3)");
-        builder.Property(sd => sd.CantidadEntregada).HasColumnType("decimal(18,3)");
-
         builder.HasOne(sd => sd.Solicitud)
             .WithMany(s => s.Detalles)
             .HasForeignKey(sd => sd.SolicitudId)

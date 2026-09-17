@@ -8,7 +8,7 @@ public record MovimientoDto(
     int ProductoId,
     string ProductoNombre,
     TipoMovimiento TipoMovimiento,
-    decimal Cantidad,
+    int Cantidad,
     int UbicacionId,
     string UbicacionCodigo,
     bool Retorna,
@@ -22,12 +22,12 @@ public record MovimientoDto(
     DateTime FechaMovimiento
 );
 
-public record RegistrarEntradaDto(int ProductoId, int UbicacionId, decimal Cantidad, string? Motivo);
+public record RegistrarEntradaDto(int ProductoId, int UbicacionId, int Cantidad, string? Motivo, int? SolicitudDetalleId = null);
 
 public record RegistrarSalidaDto(
     int ProductoId,
     int UbicacionId,
-    decimal Cantidad,
+    int Cantidad,
     string? Motivo,
     bool Retorna,
     string? UbicacionExterna,
@@ -35,10 +35,10 @@ public record RegistrarSalidaDto(
     int? SolicitudDetalleId
 );
 
-public record RegistrarAjusteDto(int ProductoId, int UbicacionId, decimal Cantidad, bool EsPositivo, string Motivo);
+public record RegistrarAjusteDto(int ProductoId, int UbicacionId, int Cantidad, bool EsPositivo, string Motivo);
 
-public record RegistrarDevolucionDto(int MovimientoOrigenId, int UbicacionId, decimal Cantidad, string? Motivo);
+public record RegistrarDevolucionDto(int MovimientoOrigenId, int UbicacionId, int Cantidad, string? Motivo);
 
-public record MovimientoResultadoDto(int MovimientoId, string NumeroMovimiento, string Estado, DateTime FechaMovimiento, decimal ExistenciaResultante);
+public record MovimientoResultadoDto(int MovimientoId, string NumeroMovimiento, string Estado, DateTime FechaMovimiento, int ExistenciaResultante);
 
 public record GenerarMovimientosExcelDto(TipoMovimiento? Tipo, int? CategoriaId);

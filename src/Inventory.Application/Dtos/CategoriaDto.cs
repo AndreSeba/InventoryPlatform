@@ -1,7 +1,7 @@
 namespace Inventory.Application.Dtos;
 
-public record CategoriaDto(int Id, string CodigoCategoria, string? Descripcion, bool Activo);
+public record CategoriaDto(int Id, string CodigoCategoria, string? Descripcion, bool Activo, int? EncargadoId, string? EncargadoNombre);
 
-public record CrearCategoriaDto(string CodigoCategoria, string? Descripcion);
+public record CrearCategoriaDto(string CodigoCategoria, string? Descripcion, int? EncargadoId);
 
-public record ActualizarCategoriaDto(string CodigoCategoria, string? Descripcion, bool Activo);
+public record ActualizarCategoriaDto(string CodigoCategoria, string? Descripcion, bool Activo, int? EncargadoId);

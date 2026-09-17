@@ -11,12 +11,12 @@ public class Movimiento
     public Producto? Producto { get; set; }
 
     public TipoMovimiento TipoMovimiento { get; set; }
-    public decimal Cantidad { get; set; }
+    public int Cantidad { get; set; }
 
     // Con signo: +Cantidad en Entrada/AjustePositivo, -Cantidad en Salida/AjusteNegativo.
     // Es la base de SUM() para el stock — nunca se acepta un valor que no siga esta regla
     // (impuesto por MovimientoService, más el CHECK de base CK_Movimiento_Signo).
-    public decimal CantidadEfectiva { get; set; }
+    public int CantidadEfectiva { get; set; }
 
     // Obligatoria en los 4 tipos (a diferencia del v3 original, donde el rack solo
     // era obligatorio en Entrada/Salida) — así lo definió la guía v4 (sección 5.8).

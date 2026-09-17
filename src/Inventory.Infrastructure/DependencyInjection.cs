@@ -33,6 +33,7 @@ public static class DependencyInjection
         services.AddScoped<IMovimientoService, MovimientoService>();
         services.AddScoped<ISolicitudService, SolicitudService>();
         services.AddScoped<IConteoService, ConteoService>();
+        services.AddScoped<ISolicitudNotificationService, LoggingSolicitudNotificationService>();
 
         return services;
     }

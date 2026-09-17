@@ -12,7 +12,6 @@ public class ConteoConfiguration : IEntityTypeConfiguration<Conteo>
         builder.HasKey(c => c.Id);
 
         builder.Property(c => c.SesionConteo).HasMaxLength(50).IsRequired();
-        builder.Property(c => c.CantidadContada).HasColumnType("decimal(18,3)");
         builder.Property(c => c.ContadoPorNombre).HasMaxLength(150).IsRequired();
 
         builder.HasOne(c => c.Producto).WithMany().HasForeignKey(c => c.ProductoId).OnDelete(DeleteBehavior.Restrict);

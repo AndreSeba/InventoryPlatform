@@ -9,14 +9,14 @@ public record ProductoDto(
     string CategoriaNombre,
     string UnidadMedida,
     decimal? CostoUnitario,
-    decimal StockMinimo,
+    int StockMinimo,
     string? Detalle,
     // Ruta RELATIVA (no absoluta) calculada al vuelo — "/api/productos/{id}/imagen" si
     // el producto tiene ImagenData, si no null. El frontend le antepone su ApiBaseUrl al
     // renderizar (ver ProductoApiClient.ApiBaseUrl) — nunca queda una URL vieja grabada.
     string? ImagenUrl,
     bool Activo,
-    decimal Existencia
+    int Existencia
 );
 
 public record CrearProductoDto(
@@ -25,7 +25,7 @@ public record CrearProductoDto(
     int CategoriaId,
     string UnidadMedida,
     decimal? CostoUnitario,
-    decimal StockMinimo,
+    int StockMinimo,
     string? Detalle,
     byte[]? ImagenData,
     string? ImagenContentType
@@ -36,7 +36,7 @@ public record ActualizarProductoDto(
     int CategoriaId,
     string UnidadMedida,
     decimal? CostoUnitario,
-    decimal StockMinimo,
+    int StockMinimo,
     string? Detalle,
     // ImagenData null = "no tocar la imagen actual" (así no hay que reenviar los bytes
     // ya guardados solo porque se editó el nombre). Mandar bytes reales = reemplazarla.
@@ -49,4 +49,4 @@ public record SiguienteCodigoDto(string Codigo);
 // Usado por Movimientos (Salida/Ajuste negativo) y Conteo físico para no dejar elegir una
 // ubicación donde el producto no tiene nada guardado — solo se listan las que tienen
 // Existencia > 0 en este momento.
-public record UbicacionConExistenciaDto(int UbicacionId, string UbicacionCodigo, decimal Existencia);
+public record UbicacionConExistenciaDto(int UbicacionId, string UbicacionCodigo, int Existencia);

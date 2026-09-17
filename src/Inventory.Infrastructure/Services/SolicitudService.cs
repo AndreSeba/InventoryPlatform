@@ -5,14 +5,22 @@ using Inventory.Domain.Entities;
 using Inventory.Domain.Enums;
 using Inventory.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Inventory.Infrastructure.Services;
 
 public class SolicitudService : ISolicitudService
 {
     private readonly InventoryDbContext _db;
+    private readonly ISolicitudNotificationService _notificationService;
+    private readonly ILogger<SolicitudService> _logger;
 
-    public SolicitudService(InventoryDbContext db) => _db = db;
+    public SolicitudService(InventoryDbContext db, ISolicitudNotificationService notificationService, ILogger<SolicitudService> logger)
+    {
+        _db = db;
+        _notificationService = notificationService;
+        _logger = logger;
+    }
 
     public async Task<IReadOnlyList<SolicitudDto>> ListarAsync(string? estado, CancellationToken ct)
     {
@@ -77,6 +85,7 @@ public class SolicitudService : ISolicitudService
         var solicitud = new Solicitud
         {
             AreaId = area.Id,
+            Tipo = dto.Tipo,
             Estado = EstadoSolicitud.Pendiente,
             FechaSolicitud = DateTime.UtcNow,
             SolicitadoPorId = usuario.Id,
@@ -100,7 +109,45 @@ public class SolicitudService : ISolicitudService
         foreach (var d in solicitud.Detalles)
             await _db.Entry(d).Reference(x => x.Producto).LoadAsync(ct);
 
-        return ASolicitudDto(solicitud);
+        var solicitudDto = ASolicitudDto(solicitud);
+        await AvisarEncargadosAsync(solicitud, solicitudDto, ct);
+
+        return solicitudDto;
+    }
+
+    // Agrupa las líneas por la categoría de cada producto, se queda solo con las
+    // categorías que tienen encargado asignado, funde en un solo grupo dos categorías con
+    // el mismo encargado (una sola notificación con todas sus líneas), y avisa. Una falla
+    // acá nunca tira abajo la creación — la solicitud ya quedó guardada.
+    private async Task AvisarEncargadosAsync(Solicitud solicitud, SolicitudDto solicitudDto, CancellationToken ct)
+    {
+        try
+        {
+            var productoIds = solicitud.Detalles.Select(d => d.ProductoId).ToList();
+            var productos = await _db.Productos.AsNoTracking()
+                .Include(p => p.Categoria).ThenInclude(c => c!.Encargado)
+                .Where(p => productoIds.Contains(p.Id))
+                .ToDictionaryAsync(p => p.Id, ct);
+
+            var grupos = solicitudDto.Detalles
+                .Select(d => (Detalle: d, Producto: productos.GetValueOrDefault(d.ProductoId)))
+                .Where(x => x.Producto?.Categoria?.Encargado is not null)
+                .GroupBy(x => x.Producto!.Categoria!.EncargadoId!.Value)
+                .Select(g => new EncargadoNotificacionDto(
+                    g.Key,
+                    g.First().Producto!.Categoria!.Encargado!.NombreCompleto,
+                    g.First().Producto!.Categoria!.Encargado!.Email,
+                    g.Select(x => x.Detalle).ToList()
+                ))
+                .ToList();
+
+            if (grupos.Count > 0)
+                await _notificationService.NotificarNuevaSolicitudAsync(solicitudDto, grupos, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "No se pudo avisar a los encargados de la solicitud {NumeroSolicitud} — la solicitud igual quedó creada.", solicitud.NumeroSolicitud);
+        }
     }
 
     public async Task<SolicitudDto> AprobarAsync(int id, AprobarSolicitudDto dto, UsuarioActuante usuario, CancellationToken ct)
@@ -156,7 +203,7 @@ public class SolicitudService : ISolicitudService
     }
 
     private static SolicitudDto ASolicitudDto(Solicitud s) => new(
-        s.Id, s.NumeroSolicitud, s.AreaId, s.Area?.NombreArea ?? string.Empty, s.Estado,
+        s.Id, s.NumeroSolicitud, s.AreaId, s.Area?.NombreArea ?? string.Empty, s.Tipo, s.Estado,
         s.FechaSolicitud, s.SolicitadoPorId, s.SolicitadoPorNombre,
         s.AprobadoPorId, s.AprobadoPorNombre, s.FechaResolucion, s.MotivoRechazo,
         s.Detalles.Select(d => new SolicitudDetalleDto(

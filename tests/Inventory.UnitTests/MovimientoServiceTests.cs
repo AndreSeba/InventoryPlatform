@@ -99,7 +99,7 @@ public class MovimientoServiceTests : IDisposable
             new RegistrarSalidaDto(productoId, ubicacionId, 30, "Entrega marketing", false, null, null, null), _usuario, default);
 
         Assert.Equal("CONFIRMADO", resultado.Estado);
-        Assert.Equal(70m, resultado.ExistenciaResultante);
+        Assert.Equal(70, resultado.ExistenciaResultante);
     }
 
     [Fact]
@@ -168,7 +168,7 @@ public class MovimientoServiceTests : IDisposable
             new RegistrarDevolucionDto(salida.MovimientoId, ubicacionId, 10, "Devolución"), _usuario, default);
 
         Assert.Equal("CONFIRMADO", devolucion.Estado);
-        Assert.Equal(20m, devolucion.ExistenciaResultante); // 20 entrada - 10 salida + 10 devuelto
+        Assert.Equal(20, devolucion.ExistenciaResultante); // 20 entrada - 10 salida + 10 devuelto
     }
 
     [Fact]

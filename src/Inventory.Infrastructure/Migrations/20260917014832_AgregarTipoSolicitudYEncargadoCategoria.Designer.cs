@@ -4,6 +4,7 @@ using Inventory.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Inventory.Infrastructure.Migrations
 {
     [DbContext(typeof(InventoryDbContext))]
-    partial class InventoryDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260917014832_AgregarTipoSolicitudYEncargadoCategoria")]
+    partial class AgregarTipoSolicitudYEncargadoCategoria
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -150,8 +153,8 @@ namespace Inventory.Infrastructure.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<int>("CantidadContada")
-                        .HasColumnType("int");
+                    b.Property<decimal>("CantidadContada")
+                        .HasColumnType("decimal(18,3)");
 
                     b.Property<int>("ContadoPorId")
                         .HasColumnType("int");
@@ -205,11 +208,11 @@ namespace Inventory.Infrastructure.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<int>("Cantidad")
-                        .HasColumnType("int");
+                    b.Property<decimal>("Cantidad")
+                        .HasColumnType("decimal(18,3)");
 
-                    b.Property<int>("CantidadEfectiva")
-                        .HasColumnType("int");
+                    b.Property<decimal>("CantidadEfectiva")
+                        .HasColumnType("decimal(18,3)");
 
                     b.Property<DateTime>("FechaMovimiento")
                         .HasColumnType("datetime2");
@@ -573,8 +576,8 @@ namespace Inventory.Infrastructure.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)");
 
-                    b.Property<int>("StockMinimo")
-                        .HasColumnType("int");
+                    b.Property<decimal>("StockMinimo")
+                        .HasColumnType("decimal(18,3)");
 
                     b.Property<string>("UnidadMedida")
                         .IsRequired()
@@ -1040,14 +1043,14 @@ namespace Inventory.Infrastructure.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<int?>("CantidadAprobada")
-                        .HasColumnType("int");
+                    b.Property<decimal?>("CantidadAprobada")
+                        .HasColumnType("decimal(18,3)");
 
-                    b.Property<int>("CantidadEntregada")
-                        .HasColumnType("int");
+                    b.Property<decimal>("CantidadEntregada")
+                        .HasColumnType("decimal(18,3)");
 
-                    b.Property<int>("CantidadSolicitada")
-                        .HasColumnType("int");
+                    b.Property<decimal>("CantidadSolicitada")
+                        .HasColumnType("decimal(18,3)");
 
                     b.Property<int>("ProductoId")
                         .HasColumnType("int");

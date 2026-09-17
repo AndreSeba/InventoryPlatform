@@ -12,8 +12,6 @@ public class MovimientoConfiguration : IEntityTypeConfiguration<Movimiento>
         builder.HasKey(m => m.Id);
 
         builder.Property(m => m.NumeroMovimiento).HasMaxLength(50).IsRequired();
-        builder.Property(m => m.Cantidad).HasColumnType("decimal(18,3)");
-        builder.Property(m => m.CantidadEfectiva).HasColumnType("decimal(18,3)");
         builder.Property(m => m.UbicacionExterna).HasMaxLength(255);
         builder.Property(m => m.RegistradoPorNombre).HasMaxLength(150).IsRequired();
         builder.Property(m => m.Motivo).HasMaxLength(2000);
@@ -76,10 +74,11 @@ public class MovimientoConfiguration : IEntityTypeConfiguration<Movimiento>
             "[MovimientoOrigenId] IS NULL OR [MovimientoOrigenId] <> [Id]"
         ));
 
-        // Una Salida solo se liga a una línea de solicitud (nunca una Entrada/Ajuste).
+        // Una Entrada o Salida puede ligarse a una línea de solicitud (nunca un Ajuste) —
+        // Entrada cierra una solicitud de tipo Entrada, Salida una de tipo Salida.
         builder.ToTable(t => t.HasCheckConstraint(
             "CK_Movimiento_SolicitudSoloSalida",
-            "[SolicitudDetalleId] IS NULL OR [TipoMovimiento] = 2"
+            "[SolicitudDetalleId] IS NULL OR [TipoMovimiento] IN (1, 2)"
         ));
     }
 }

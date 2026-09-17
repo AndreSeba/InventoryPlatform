@@ -15,5 +15,12 @@ public class CategoriaConfiguration : IEntityTypeConfiguration<Categoria>
         builder.Property(c => c.Descripcion).HasMaxLength(255);
 
         builder.HasIndex(c => c.CodigoCategoria).IsUnique().HasFilter("[Activo] = 1");
+
+        // Nunca se borra un usuario con historial (categorías apuntándolo como encargado
+        // incluidas) — Restrict, mismo criterio que el resto del proyecto.
+        builder.HasOne(c => c.Encargado)
+            .WithMany()
+            .HasForeignKey(c => c.EncargadoId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

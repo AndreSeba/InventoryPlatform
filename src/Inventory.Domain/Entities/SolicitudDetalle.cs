@@ -10,13 +10,13 @@ public class SolicitudDetalle
     public int ProductoId { get; set; }
     public Producto? Producto { get; set; }
 
-    public decimal CantidadSolicitada { get; set; }
-    public decimal? CantidadAprobada { get; set; } // null hasta que se aprueba; <= CantidadSolicitada
+    public int CantidadSolicitada { get; set; }
+    public int? CantidadAprobada { get; set; } // null hasta que se aprueba; <= CantidadSolicitada
 
     // Cache acumulado desde los Movimiento de Salida ligados a esta línea — lo
     // actualiza SolicitudService.RegistrarEntregaAsync en la misma transacción
     // que crea el movimiento (equivalente al flujo "INV Acumular entregado").
-    public decimal CantidadEntregada { get; set; }
+    public int CantidadEntregada { get; set; }
 
     public ICollection<Movimiento> Movimientos { get; set; } = new List<Movimiento>();
 }

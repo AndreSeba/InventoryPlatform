@@ -53,6 +53,22 @@ public class ProductosController : ControllerBase
         return CreatedAtAction(nameof(ObtenerPorId), new { id = creado.Id }, creado);
     }
 
+    // Alta rápida desde el carrito de una solicitud de Entrada: el solicitante es quien
+    // se entera de un material nuevo (aviso del proveedor/categoría) y necesita poder
+    // registrarlo él mismo para no recurrir a texto libre (que generaría productos
+    // duplicados con variaciones de nombre) — ver CLAUDE.md. Mismo servicio que el alta
+    // de catálogo normal, pero gateado por solicitudes.crear en vez de productos.crear.
+    [HttpPost("rapido")]
+    [Authorize(Policy = Permisos.SolicitudesCrear)]
+    [ProducesResponseType(typeof(ProductoDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<ProductoDto>> CrearRapido([FromBody] CrearProductoDto dto, CancellationToken ct)
+    {
+        var usuario = UsuarioActual();
+        var creado = await _productoService.CrearAsync(dto, usuario, ct);
+        return CreatedAtAction(nameof(ObtenerPorId), new { id = creado.Id }, creado);
+    }
+
     [HttpPut("{id:int}")]
     [Authorize(Policy = Permisos.ProductosEditar)]
     [RequestSizeLimit(8_000_000)]
