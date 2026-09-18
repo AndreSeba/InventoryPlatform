@@ -63,7 +63,7 @@ public class MovimientoServiceTests : IDisposable
 
     private async Task<(int ProductoId, int UbicacionId)> CrearProductoYUbicacionAsync(string codigo = "TEST_1")
     {
-        var categoria = new Categoria { CodigoCategoria = "PRUEBA", Activo = true };
+        var categoria = new Categoria { CodigoCategoria = "PRUEBA", PaisId = PaisId, Activo = true };
         _db.Categorias.Add(categoria);
 
         var ubicacion = new Ubicacion

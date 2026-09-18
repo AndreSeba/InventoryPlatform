@@ -1,6 +1,6 @@
 namespace Inventory.Application.Dtos;
 
-public record UnidadDto(int Id, string CodigoUnidad, string Nombre, bool Activo);
+public record UnidadDto(int Id, string CodigoUnidad, string Nombre, bool Activo, int PaisId, string PaisNombre);
 
 public record CrearUnidadDto(string CodigoUnidad, string Nombre);
 

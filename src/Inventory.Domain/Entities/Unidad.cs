@@ -16,5 +16,11 @@ public class Unidad
 
     public string CodigoUnidad { get; set; } = string.Empty; // UNI, CAJA, KG, L...
     public string Nombre { get; set; } = string.Empty;       // "Unidad", "Caja", "Kilogramo"
+
+    // A qué país pertenece esta unidad — asignado automático desde el claim
+    // de la sesión al crear (ver UnidadService), nunca elegido a mano.
+    public int PaisId { get; set; }
+    public Pais? Pais { get; set; }
+
     public bool Activo { get; set; } = true;
 }

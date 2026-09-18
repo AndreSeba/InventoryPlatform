@@ -42,7 +42,7 @@ public class ProductoService : IProductoService
 
     public async Task<SiguienteCodigoDto> ObtenerSiguienteCodigoAsync(int categoriaId, int paisId, CancellationToken ct)
     {
-        var categoria = await _db.Categorias.FirstOrDefaultAsync(c => c.Id == categoriaId && c.Activo, ct)
+        var categoria = await _db.Categorias.FirstOrDefaultAsync(c => c.Id == categoriaId && c.PaisId == paisId && c.Activo, ct)
             ?? throw new CategoriaNoEncontradaException(categoriaId);
 
         var codigo = await GenerarCodigoAsync(categoria, paisId, ct);
@@ -51,14 +51,14 @@ public class ProductoService : IProductoService
 
     public async Task<ProductoDto> CrearAsync(CrearProductoDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
-        var categoria = await _db.Categorias.FirstOrDefaultAsync(c => c.Id == dto.CategoriaId && c.Activo, ct)
+        var categoria = await _db.Categorias.FirstOrDefaultAsync(c => c.Id == dto.CategoriaId && c.PaisId == paisId && c.Activo, ct)
             ?? throw new CategoriaNoEncontradaException(dto.CategoriaId);
 
         var pais = await _db.Paises.FirstOrDefaultAsync(p => p.Id == paisId && p.Activo, ct)
             ?? throw new PaisNoEncontradoException(paisId);
 
         var codigo = await GenerarCodigoAsync(categoria, paisId, ct);
-        var unidad = await ResolverUnidadAsync(dto.UnidadMedida, ct);
+        var unidad = await ResolverUnidadAsync(dto.UnidadMedida, paisId, ct);
         var clave = $"{codigo}-{unidad}"; // regla de la guía v4: Codigo + '-' + Unidad
 
         // Único por (País, ClaveProducto) — dos países pueden llegar al mismo código.
@@ -101,12 +101,13 @@ public class ProductoService : IProductoService
     }
 
     // Las unidades válidas salen del catálogo Unidad (editable desde /unidades), ya no
-    // de un CHECK fijo en la base. Devuelve el código normalizado en mayúsculas.
-    private async Task<string> ResolverUnidadAsync(string unidadMedida, CancellationToken ct)
+    // de un CHECK fijo en la base. Escopeado por país — la unidad de un país no sirve
+    // para validar un producto de otro. Devuelve el código normalizado en mayúsculas.
+    private async Task<string> ResolverUnidadAsync(string unidadMedida, int paisId, CancellationToken ct)
     {
         var codigo = (unidadMedida ?? string.Empty).Trim().ToUpperInvariant();
 
-        var existe = await _db.Unidades.AnyAsync(u => u.CodigoUnidad == codigo && u.Activo, ct);
+        var existe = await _db.Unidades.AnyAsync(u => u.CodigoUnidad == codigo && u.PaisId == paisId && u.Activo, ct);
         if (!existe)
             throw new UnidadNoEncontradaException(codigo);
 
@@ -121,7 +122,7 @@ public class ProductoService : IProductoService
 
         var categoria = producto.CategoriaId == dto.CategoriaId
             ? producto.Categoria!
-            : await _db.Categorias.FirstOrDefaultAsync(c => c.Id == dto.CategoriaId && c.Activo, ct)
+            : await _db.Categorias.FirstOrDefaultAsync(c => c.Id == dto.CategoriaId && c.PaisId == paisId && c.Activo, ct)
                 ?? throw new CategoriaNoEncontradaException(dto.CategoriaId);
 
         var valorAnterior = JsonSerializer.Serialize(new
@@ -135,7 +136,7 @@ public class ProductoService : IProductoService
             TeniaImagen = producto.ImagenData is not null,
         });
 
-        var unidadNueva = await ResolverUnidadAsync(dto.UnidadMedida, ct);
+        var unidadNueva = await ResolverUnidadAsync(dto.UnidadMedida, paisId, ct);
         if (unidadNueva != producto.UnidadMedida)
         {
             // ClaveProducto es "{CodigoProducto}-{Unidad}" (regla de la guía v4). Antes

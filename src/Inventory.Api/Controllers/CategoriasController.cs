@@ -1,3 +1,4 @@
+using Inventory.Api.Security;
 using Inventory.Application.Dtos;
 using Inventory.Application.Interfaces;
 using Inventory.Domain.Security;
@@ -18,7 +19,7 @@ public class CategoriasController : ControllerBase
     [HttpGet]
     [Authorize(Policy = Permisos.CategoriasVer)]
     public async Task<ActionResult<IReadOnlyList<CategoriaDto>>> Listar([FromQuery] bool incluirInactivas, CancellationToken ct)
-        => Ok(await _categoriaService.ListarAsync(incluirInactivas, ct));
+        => Ok(await _categoriaService.ListarAsync(User.ObtenerPaisId(), incluirInactivas, ct));
 
     [HttpPost]
     [Authorize(Policy = Permisos.CategoriasCrear)]
@@ -26,7 +27,7 @@ public class CategoriasController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<CategoriaDto>> Crear([FromBody] CrearCategoriaDto dto, CancellationToken ct)
     {
-        var creada = await _categoriaService.CrearAsync(dto, ct);
+        var creada = await _categoriaService.CrearAsync(dto, User.ObtenerPaisId(), ct);
         return CreatedAtAction(nameof(Listar), creada);
     }
 
@@ -36,5 +37,5 @@ public class CategoriasController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<CategoriaDto>> Actualizar(int id, [FromBody] ActualizarCategoriaDto dto, CancellationToken ct)
-        => Ok(await _categoriaService.ActualizarAsync(id, dto, ct));
+        => Ok(await _categoriaService.ActualizarAsync(id, dto, User.ObtenerPaisId(), ct));
 }
