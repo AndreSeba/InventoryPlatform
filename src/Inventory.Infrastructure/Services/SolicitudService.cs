@@ -72,6 +72,10 @@ public class SolicitudService : ISolicitudService
         if (dto.Detalles.Select(d => d.ProductoId).Distinct().Count() != dto.Detalles.Count)
             throw new SolicitudEstadoInvalidoException("Un mismo producto no puede repetirse en la misma solicitud.");
 
+        // Retorna (préstamo) solo tiene sentido en una Solicitud de Salida.
+        if (dto.Tipo != TipoSolicitud.Salida && dto.Detalles.Any(d => d.Retorna))
+            throw new SolicitudEstadoInvalidoException("El retorno de material solo aplica a solicitudes de Salida.");
+
         // Área y productos tienen que ser del mismo país que la sesión — nunca se arma
         // una solicitud mezclando el área de un país con productos de otro.
         var area = await _db.Areas.FirstOrDefaultAsync(a => a.Id == dto.AreaId && a.PaisId == paisId && a.Activo, ct)
@@ -97,6 +101,9 @@ public class SolicitudService : ISolicitudService
         {
             ProductoId = d.ProductoId,
             CantidadSolicitada = d.CantidadSolicitada,
+            Retorna = d.Retorna,
+            UbicacionExterna = d.Retorna ? d.UbicacionExterna : null,
+            FechaRetornoEsperada = d.Retorna ? d.FechaRetornoEsperada : null,
         }).ToList();
 
         _db.Solicitudes.Add(solicitud);
@@ -210,7 +217,8 @@ public class SolicitudService : ISolicitudService
         s.Detalles.Select(d => new SolicitudDetalleDto(
             d.Id, d.ProductoId, d.Producto?.Nombre ?? string.Empty, d.Producto?.CodigoProducto ?? string.Empty,
             d.Producto?.UnidadMedida ?? string.Empty, d.Producto?.CostoUnitario,
-            d.CantidadSolicitada, d.CantidadAprobada, d.CantidadEntregada
+            d.CantidadSolicitada, d.CantidadAprobada, d.CantidadEntregada,
+            d.Retorna, d.UbicacionExterna, d.FechaRetornoEsperada
         )).ToList()
     );
 }

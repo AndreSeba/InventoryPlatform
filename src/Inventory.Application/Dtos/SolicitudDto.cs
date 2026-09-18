@@ -4,7 +4,8 @@ namespace Inventory.Application.Dtos;
 
 public record SolicitudDetalleDto(
     int Id, int ProductoId, string ProductoNombre, string ProductoCodigo, string UnidadMedida, decimal? CostoUnitario,
-    int CantidadSolicitada, int? CantidadAprobada, int CantidadEntregada
+    int CantidadSolicitada, int? CantidadAprobada, int CantidadEntregada,
+    bool Retorna, string? UbicacionExterna, DateOnly? FechaRetornoEsperada
 );
 
 public record SolicitudDto(
@@ -14,7 +15,10 @@ public record SolicitudDto(
     string? MotivoRechazo, IReadOnlyList<SolicitudDetalleDto> Detalles
 );
 
-public record CrearSolicitudDetalleDto(int ProductoId, int CantidadSolicitada);
+public record CrearSolicitudDetalleDto(
+    int ProductoId, int CantidadSolicitada,
+    bool Retorna = false, string? UbicacionExterna = null, DateOnly? FechaRetornoEsperada = null
+);
 
 public record CrearSolicitudDto(int AreaId, TipoSolicitud Tipo, IReadOnlyList<CrearSolicitudDetalleDto> Detalles);
 

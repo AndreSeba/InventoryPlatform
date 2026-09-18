@@ -25,11 +25,20 @@ public class SolicitudDetalleConfiguration : IEntityTypeConfiguration<SolicitudD
         // clave compuesta que SharePoint no puede exigir — en SQL Server sí podemos.
         builder.HasIndex(sd => new { sd.SolicitudId, sd.ProductoId }).IsUnique();
 
+        builder.Property(sd => sd.UbicacionExterna).HasMaxLength(255);
+
         builder.ToTable(t => t.HasCheckConstraint("CK_SolicitudDetalle_Solicitada", "[CantidadSolicitada] > 0"));
         builder.ToTable(t => t.HasCheckConstraint(
             "CK_SolicitudDetalle_Aprobada",
             "[CantidadAprobada] IS NULL OR [CantidadAprobada] <= [CantidadSolicitada]"
         ));
         builder.ToTable(t => t.HasCheckConstraint("CK_SolicitudDetalle_Entregada", "[CantidadEntregada] >= 0"));
+
+        // UbicacionExterna/FechaRetornoEsperada solo tienen sentido si Retorna = 1 —
+        // mismo criterio que CK_Movimiento_RetornaSoloSalida (MovimientoConfiguration).
+        builder.ToTable(t => t.HasCheckConstraint(
+            "CK_SolicitudDetalle_RetornaSoloConDatos",
+            "[Retorna] = 1 OR ([UbicacionExterna] IS NULL AND [FechaRetornoEsperada] IS NULL)"
+        ));
     }
 }
