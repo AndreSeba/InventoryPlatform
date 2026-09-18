@@ -18,7 +18,12 @@ public record ProductoDto(
     // renderizar (ver ProductoApiClient.ApiBaseUrl) — nunca queda una URL vieja grabada.
     string? ImagenUrl,
     bool Activo,
-    int Existencia
+    int Existencia,
+    // MÍNIMO FechaVencimiento entre las Entradas de este producto que tienen el campo
+    // cargado — null si ninguna entrada trae vencimiento. No indica si ESE lote puntual
+    // sigue en stock (el sistema no trackea qué lote vació cada Salida), es solo un aviso
+    // de "este producto tiene algún lote vencido o por vencer, revisar" (ver ProductoService).
+    DateOnly? ProximoVencimiento
 );
 
 public record CrearProductoDto(

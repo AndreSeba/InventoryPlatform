@@ -16,6 +16,7 @@ public record MovimientoDto(
     bool Retorna,
     string? UbicacionExterna,
     DateOnly? FechaRetornoEsperada,
+    DateOnly? FechaVencimiento,
     int? MovimientoOrigenId,
     int? SolicitudDetalleId,
     int RegistradoPorId,
@@ -24,7 +25,7 @@ public record MovimientoDto(
     DateTime FechaMovimiento
 );
 
-public record RegistrarEntradaDto(int ProductoId, int UbicacionId, int Cantidad, string? Motivo, int? SolicitudDetalleId = null);
+public record RegistrarEntradaDto(int ProductoId, int UbicacionId, int Cantidad, string? Motivo, int? SolicitudDetalleId = null, DateOnly? FechaVencimiento = null);
 
 public record RegistrarSalidaDto(
     int ProductoId,

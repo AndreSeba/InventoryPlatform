@@ -37,7 +37,8 @@ public class ProductoService : IProductoService
             ?? throw new ProductoNoEncontradoException(id);
 
         var existencia = await CalcularExistenciaAsync(id, ct);
-        return AProductoDto(producto, existencia);
+        var proximoVencimiento = await CalcularProximoVencimientoAsync(id, ct);
+        return AProductoDto(producto, existencia, proximoVencimiento);
     }
 
     public async Task<SiguienteCodigoDto> ObtenerSiguienteCodigoAsync(int categoriaId, int paisId, CancellationToken ct)
@@ -97,7 +98,7 @@ public class ProductoService : IProductoService
         });
 
         await _db.SaveChangesAsync(ct);
-        return AProductoDto(producto, categoria, pais, 0);
+        return AProductoDto(producto, categoria, pais, 0, null); // recién creado, sin entradas todavía
     }
 
     // Las unidades válidas salen del catálogo Unidad (editable desde /unidades), ya no
@@ -182,7 +183,8 @@ public class ProductoService : IProductoService
         await _db.SaveChangesAsync(ct);
 
         var existencia = await CalcularExistenciaAsync(id, ct);
-        return AProductoDto(producto, categoria, producto.Pais!, existencia);
+        var proximoVencimiento = await CalcularProximoVencimientoAsync(id, ct);
+        return AProductoDto(producto, categoria, producto.Pais!, existencia, proximoVencimiento);
     }
 
     public async Task DesactivarAsync(int id, int paisId, UsuarioActuante usuario, CancellationToken ct)
@@ -257,6 +259,16 @@ public class ProductoService : IProductoService
             .SumAsync(m => (int?)m.CantidadEfectiva, ct) ?? 0;
     }
 
+    // MÍNIMO FechaVencimiento entre las Entradas de este producto que la tienen cargada —
+    // null si ninguna. Ver comentario en ProductoDto.ProximoVencimiento.
+    private async Task<DateOnly?> CalcularProximoVencimientoAsync(int productoId, CancellationToken ct)
+    {
+        return await _db.Movimientos
+            .Where(m => m.ProductoId == productoId && m.TipoMovimiento == TipoMovimiento.Entrada && m.FechaVencimiento != null)
+            .Select(m => m.FechaVencimiento)
+            .MinAsync(ct);
+    }
+
     private async Task<List<ProductoDto>> MapearConExistenciaAsync(List<Producto> productos, CancellationToken ct)
     {
         if (productos.Count == 0)
@@ -270,8 +282,16 @@ public class ProductoService : IProductoService
             .Select(g => new { ProductoId = g.Key, Existencia = g.Sum(m => m.CantidadEfectiva) })
             .ToDictionaryAsync(x => x.ProductoId, x => x.Existencia, ct);
 
+        var proximoVencimientoPorProducto = await _db.Movimientos
+            .Where(m => ids.Contains(m.ProductoId) && m.TipoMovimiento == TipoMovimiento.Entrada && m.FechaVencimiento != null)
+            .GroupBy(m => m.ProductoId)
+            .Select(g => new { ProductoId = g.Key, Proximo = g.Min(m => m.FechaVencimiento) })
+            .ToDictionaryAsync(x => x.ProductoId, x => x.Proximo, ct);
+
         return productos.Select(p =>
-            AProductoDto(p, existenciaPorProducto.TryGetValue(p.Id, out var e) ? e : 0)
+            AProductoDto(p,
+                existenciaPorProducto.TryGetValue(p.Id, out var e) ? e : 0,
+                proximoVencimientoPorProducto.TryGetValue(p.Id, out var pv) ? pv : null)
         ).ToList();
     }
 
@@ -295,13 +315,14 @@ public class ProductoService : IProductoService
             throw new ArchivoInvalidoException("Formato no permitido. Usá JPG, PNG o WEBP.");
     }
 
-    private static ProductoDto AProductoDto(Producto p, int existencia) => AProductoDto(p, p.Categoria!, p.Pais!, existencia);
+    private static ProductoDto AProductoDto(Producto p, int existencia, DateOnly? proximoVencimiento) =>
+        AProductoDto(p, p.Categoria!, p.Pais!, existencia, proximoVencimiento);
 
-    private static ProductoDto AProductoDto(Producto p, Categoria categoria, Pais pais, int existencia) => new(
+    private static ProductoDto AProductoDto(Producto p, Categoria categoria, Pais pais, int existencia, DateOnly? proximoVencimiento) => new(
         p.Id, p.ClaveProducto, p.CodigoProducto, p.Nombre, p.CategoriaId, categoria.CodigoCategoria,
         p.PaisId, pais.Nombre,
         p.UnidadMedida, p.CostoUnitario, p.StockMinimo, p.Detalle,
         p.ImagenData is not null ? $"/api/productos/{p.Id}/imagen" : null,
-        p.Activo, existencia
+        p.Activo, existencia, proximoVencimiento
     );
 }

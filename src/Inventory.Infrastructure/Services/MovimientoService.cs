@@ -22,6 +22,7 @@ public class MovimientoService : IMovimientoService
 
             var movimiento = NuevoMovimiento(producto.Id, TipoMovimiento.Entrada, dto.Cantidad, dto.Cantidad, ubicacion.Id, usuario, dto.Motivo);
             movimiento.SolicitudDetalleId = detalle?.Id;
+            movimiento.FechaVencimiento = dto.FechaVencimiento;
 
             await GuardarConNumeroAsync(movimiento, "MOV", ct);
 
@@ -392,7 +393,7 @@ public class MovimientoService : IMovimientoService
         m.Id, m.NumeroMovimiento, m.ProductoId, m.Producto?.Nombre ?? string.Empty, m.TipoMovimiento, m.Cantidad,
         m.UbicacionId, m.Ubicacion?.CodigoUbicacion ?? string.Empty,
         m.Ubicacion?.Almacen?.Id ?? 0, m.Ubicacion?.Almacen?.Nombre ?? string.Empty,
-        m.Retorna, m.UbicacionExterna, m.FechaRetornoEsperada,
+        m.Retorna, m.UbicacionExterna, m.FechaRetornoEsperada, m.FechaVencimiento,
         m.MovimientoOrigenId, m.SolicitudDetalleId, m.RegistradoPorId, m.RegistradoPorNombre, m.Motivo, m.FechaMovimiento
     );
 }

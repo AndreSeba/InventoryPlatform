@@ -28,6 +28,12 @@ public class Movimiento
     public string? UbicacionExterna { get; set; }
     public DateOnly? FechaRetornoEsperada { get; set; }
 
+    // Vencimiento del lote recibido — solo aplica a TipoMovimiento = Entrada (cada
+    // Entrada es, en los hechos, un lote). No se simula qué lote se vació con qué
+    // Salida: ProductoService la usa nada más para avisar "este producto tiene algún
+    // lote vencido/por vencer", no para saber si ESTE lote puntual sigue en stock.
+    public DateOnly? FechaVencimiento { get; set; }
+
     // Autorreferencia: la devolución (Entrada) apunta a la Salida que la originó.
     public int? MovimientoOrigenId { get; set; }
     public Movimiento? MovimientoOrigen { get; set; }

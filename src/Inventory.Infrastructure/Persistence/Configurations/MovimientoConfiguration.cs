@@ -63,6 +63,12 @@ public class MovimientoConfiguration : IEntityTypeConfiguration<Movimiento>
             "[TipoMovimiento] = 2 OR ([Retorna] = 0 AND [UbicacionExterna] IS NULL AND [FechaRetornoEsperada] IS NULL)"
         ));
 
+        // FechaVencimiento solo tiene sentido en una Entrada (cada Entrada es un lote).
+        builder.ToTable(t => t.HasCheckConstraint(
+            "CK_Movimiento_VencimientoSoloEntrada",
+            "[TipoMovimiento] = 1 OR [FechaVencimiento] IS NULL"
+        ));
+
         // Una devolución (MovimientoOrigenId seteado) siempre es una Entrada.
         builder.ToTable(t => t.HasCheckConstraint(
             "CK_Movimiento_OrigenSoloEntrada",
