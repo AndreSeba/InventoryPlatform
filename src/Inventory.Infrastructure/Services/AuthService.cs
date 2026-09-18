@@ -43,7 +43,7 @@ public class AuthService : IAuthService
             throw new UsuarioInactivoException();
 
         var permisos = usuario.Rol!.RolPermisos.Select(rp => rp.Permiso!.Codigo).ToList();
-        var (token, expiraEn) = _tokenService.GenerarToken(usuario, permisos, pais.Id);
+        var (token, expiraEn) = _tokenService.GenerarToken(usuario, permisos, pais.Id, pais.Nombre, pais.CodigoIso);
 
         usuario.UltimoLoginEn = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);

@@ -16,7 +16,7 @@ public class JwtTokenService
         _options = options.Value;
     }
 
-    public (string Token, DateTime ExpiraEn) GenerarToken(Usuario usuario, IEnumerable<string> permisos, int paisId)
+    public (string Token, DateTime ExpiraEn) GenerarToken(Usuario usuario, IEnumerable<string> permisos, int paisId, string paisNombre, string paisCodigoIso)
     {
         var expiraEn = DateTime.UtcNow.AddMinutes(_options.ExpiracionMinutos);
 
@@ -29,6 +29,11 @@ public class JwtTokenService
             // País elegido en el login (ver AuthService/Home.razor) — un login = un país,
             // no hay forma de cambiarlo sin volver a loguearse (ver ObtenerPaisId).
             new("pais", paisId.ToString()),
+            // Nombre/código van embebidos acá (no solo el Id) para que el frontend pueda
+            // reconstruir la sesión leyendo únicamente la cookie con el JWT tras un F5,
+            // sin una llamada extra a /api/paises — ver AuthState.RestaurarDesdeToken.
+            new("pais_nombre", paisNombre),
+            new("pais_codigo", paisCodigoIso),
         };
         claims.AddRange(permisos.Select(p => new Claim("permiso", p)));
 
