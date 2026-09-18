@@ -1,16 +1,20 @@
 using Inventory.Domain.Entities;
+using Inventory.Domain.Security;
 using Inventory.Infrastructure.Persistence;
-using Inventory.Infrastructure.Persistence.Configurations;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Inventory.Infrastructure.Seed;
 
-// Crea el usuario Administrador inicial si la tabla Usuario está vacía. No puede ir
-// como HasData (necesita BCrypt en tiempo de ejecución) — se llama una vez al arrancar
-// la API (ver Program.cs). Credenciales de arranque documentadas en el CLAUDE.md del
-// repo — cambiar la contraseña real apenas haya un despliegue con datos de verdad.
+// Crea un usuario Administrador inicial por cada país que todavía no tenga ningún
+// usuario. No puede ir como HasData (necesita BCrypt en tiempo de ejecución) — se llama
+// una vez al arrancar la API (ver Program.cs). Usuario/Rol pasaron a ser por país —
+// Bolivia y Perú ya traen sus 4 roles sembrados vía migración (RolConfiguration), así
+// que acá solo falta el usuario. Un país agregado en caliente desde /paises no pasa por
+// acá — lo siembra PaisService.CrearAsync directo (no hace falta reiniciar la API).
+// Credenciales de arranque documentadas en el CLAUDE.md del repo — cambiar la
+// contraseña real apenas haya un despliegue con datos de verdad.
 public static class DatabaseSeeder
 {
     public const string EmailAdminInicial = "admin@inventario.local";
@@ -22,23 +26,36 @@ public static class DatabaseSeeder
         var db = scope.ServiceProvider.GetRequiredService<InventoryDbContext>();
         var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseSeeder");
 
-        var hayUsuarios = await db.Usuarios.AnyAsync();
-        if (hayUsuarios)
-            return;
-
-        db.Usuarios.Add(new Usuario
+        var paises = await db.Paises.Where(p => p.Activo).ToListAsync();
+        foreach (var pais in paises)
         {
-            Email = EmailAdminInicial,
-            NombreCompleto = "Administrador",
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(PasswordAdminInicial, workFactor: 12),
-            RolId = RolPermisoConfiguration.RolAdministradorId,
-            Activo = true,
-            CreadoEn = DateTime.UtcNow,
-        });
+            var hayUsuarios = await db.Usuarios.AnyAsync(u => u.PaisId == pais.Id);
+            if (hayUsuarios)
+                continue;
+
+            var rolAdmin = await db.Roles.FirstOrDefaultAsync(r => r.PaisId == pais.Id && r.Nombre == RolesPorDefecto.Administrador && r.Activo);
+            if (rolAdmin is null)
+            {
+                logger.LogWarning("País {Pais} no tiene rol Administrador sembrado — no se pudo crear su usuario inicial.", pais.Nombre);
+                continue;
+            }
+
+            db.Usuarios.Add(new Usuario
+            {
+                Email = EmailAdminInicial,
+                NombreCompleto = "Administrador",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(PasswordAdminInicial, workFactor: 12),
+                RolId = rolAdmin.Id,
+                PaisId = pais.Id,
+                Activo = true,
+                CreadoEn = DateTime.UtcNow,
+            });
+
+            logger.LogWarning(
+                "Usuario admin inicial creado para {Pais}: {Email} / contraseña por defecto — cambiarla antes de usar en producción.",
+                pais.Nombre, EmailAdminInicial);
+        }
 
         await db.SaveChangesAsync();
-        logger.LogWarning(
-            "Usuario admin inicial creado: {Email} / contraseña por defecto — cambiarla antes de usar en producción.",
-            EmailAdminInicial);
     }
 }

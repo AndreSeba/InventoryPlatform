@@ -1,3 +1,4 @@
+using Inventory.Api.Security;
 using Inventory.Application.Dtos;
 using Inventory.Application.Interfaces;
 using Inventory.Domain.Security;
@@ -17,7 +18,7 @@ public class RolesController : ControllerBase
 
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<RolDto>>> Listar(CancellationToken ct)
-        => Ok(await _rolService.ListarAsync(ct));
+        => Ok(await _rolService.ListarAsync(User.ObtenerPaisId(), ct));
 
     [HttpGet("permisos-disponibles")]
     public ActionResult<IReadOnlyList<PermisoDto>> ListarPermisosDisponibles()
@@ -29,7 +30,7 @@ public class RolesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<RolDto>> Crear([FromBody] CrearRolDto dto, CancellationToken ct)
     {
-        var creado = await _rolService.CrearAsync(dto, ct);
+        var creado = await _rolService.CrearAsync(dto, User.ObtenerPaisId(), ct);
         return CreatedAtAction(nameof(Listar), creado);
     }
 
@@ -38,5 +39,5 @@ public class RolesController : ControllerBase
     [ProducesResponseType(typeof(RolDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<RolDto>> Actualizar(int id, [FromBody] ActualizarRolDto dto, CancellationToken ct)
-        => Ok(await _rolService.ActualizarAsync(id, dto, ct));
+        => Ok(await _rolService.ActualizarAsync(id, dto, User.ObtenerPaisId(), ct));
 }

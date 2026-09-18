@@ -4,8 +4,8 @@ namespace Inventory.Application.Interfaces;
 
 public interface IRolService
 {
-    Task<IReadOnlyList<RolDto>> ListarAsync(CancellationToken ct);
-    Task<RolDto> CrearAsync(CrearRolDto dto, CancellationToken ct);
-    Task<RolDto> ActualizarAsync(int id, ActualizarRolDto dto, CancellationToken ct);
+    Task<IReadOnlyList<RolDto>> ListarAsync(int paisId, CancellationToken ct);
+    Task<RolDto> CrearAsync(CrearRolDto dto, int paisId, CancellationToken ct);
+    Task<RolDto> ActualizarAsync(int id, ActualizarRolDto dto, int paisId, CancellationToken ct);
     IReadOnlyList<PermisoDto> ListarPermisosDisponibles();
 }

@@ -47,6 +47,7 @@ public class MovimientoServiceTests : IDisposable
             NombreCompleto = "Usuario de pruebas",
             PasswordHash = "no-se-valida-en-estos-tests",
             RolId = 1,
+            PaisId = PaisId,
             Activo = true,
         };
         _db.Usuarios.Add(usuario);

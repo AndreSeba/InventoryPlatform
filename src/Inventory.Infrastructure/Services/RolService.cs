@@ -14,40 +14,43 @@ public class RolService : IRolService
 
     public RolService(InventoryDbContext db) => _db = db;
 
-    public async Task<IReadOnlyList<RolDto>> ListarAsync(CancellationToken ct)
+    public async Task<IReadOnlyList<RolDto>> ListarAsync(int paisId, CancellationToken ct)
     {
         var roles = await _db.Roles.AsNoTracking()
             .Include(r => r.RolPermisos).ThenInclude(rp => rp.Permiso)
-            .Where(r => r.Activo)
+            .Include(r => r.Pais)
+            .Where(r => r.PaisId == paisId && r.Activo)
             .OrderBy(r => r.Nombre)
             .ToListAsync(ct);
 
         return roles.Select(ARolDto).ToList();
     }
 
-    public async Task<RolDto> CrearAsync(CrearRolDto dto, CancellationToken ct)
+    public async Task<RolDto> CrearAsync(CrearRolDto dto, int paisId, CancellationToken ct)
     {
         var nombre = dto.Nombre.Trim();
 
-        var yaExiste = await _db.Roles.AnyAsync(r => r.Nombre == nombre && r.Activo, ct);
+        var yaExiste = await _db.Roles.AnyAsync(r => r.PaisId == paisId && r.Nombre == nombre && r.Activo, ct);
         if (yaExiste)
             throw new NombreRolDuplicadoException(nombre);
 
         var permisos = await ResolverPermisosAsync(dto.PermisoCodigos, ct);
+        var pais = await _db.Paises.FirstOrDefaultAsync(p => p.Id == paisId, ct);
 
-        var rol = new Rol { Nombre = nombre, Descripcion = dto.Descripcion, Activo = true };
+        var rol = new Rol { Nombre = nombre, Descripcion = dto.Descripcion, PaisId = paisId, Activo = true };
         rol.RolPermisos = permisos.Select(p => new RolPermiso { Permiso = p }).ToList();
 
         _db.Roles.Add(rol);
         await _db.SaveChangesAsync(ct);
 
+        rol.Pais = pais;
         return ARolDto(rol);
     }
 
-    public async Task<RolDto> ActualizarAsync(int id, ActualizarRolDto dto, CancellationToken ct)
+    public async Task<RolDto> ActualizarAsync(int id, ActualizarRolDto dto, int paisId, CancellationToken ct)
     {
-        var rol = await _db.Roles.Include(r => r.RolPermisos)
-            .FirstOrDefaultAsync(r => r.Id == id, ct)
+        var rol = await _db.Roles.Include(r => r.RolPermisos).Include(r => r.Pais)
+            .FirstOrDefaultAsync(r => r.Id == id && r.PaisId == paisId, ct)
             ?? throw new RolNoEncontradoException(id);
 
         var permisos = await ResolverPermisosAsync(dto.PermisoCodigos, ct);
@@ -82,6 +85,7 @@ public class RolService : IRolService
 
     private static RolDto ARolDto(Rol r) => new(
         r.Id, r.Nombre, r.Descripcion, r.Activo,
-        r.RolPermisos.Select(rp => rp.Permiso?.Codigo ?? string.Empty).Where(c => c.Length > 0).ToList()
+        r.RolPermisos.Select(rp => rp.Permiso?.Codigo ?? string.Empty).Where(c => c.Length > 0).ToList(),
+        r.PaisId, r.Pais?.Nombre ?? string.Empty
     );
 }

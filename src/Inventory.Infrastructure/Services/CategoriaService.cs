@@ -33,7 +33,7 @@ public class CategoriaService : ICategoriaService
         if (yaExiste)
             throw new CodigoCategoriaDuplicadoException(codigo);
 
-        var encargadoNombre = await ResolverEncargadoAsync(dto.EncargadoId, ct);
+        var encargadoNombre = await ResolverEncargadoAsync(dto.EncargadoId, paisId, ct);
 
         var categoria = new Categoria { CodigoCategoria = codigo, Descripcion = dto.Descripcion, EncargadoId = dto.EncargadoId, PaisId = paisId, Activo = true };
         _db.Categorias.Add(categoria);
@@ -54,7 +54,7 @@ public class CategoriaService : ICategoriaService
         if (yaExiste)
             throw new CodigoCategoriaDuplicadoException(codigo);
 
-        var encargadoNombre = await ResolverEncargadoAsync(dto.EncargadoId, ct);
+        var encargadoNombre = await ResolverEncargadoAsync(dto.EncargadoId, paisId, ct);
 
         categoria.CodigoCategoria = codigo;
         categoria.Descripcion = dto.Descripcion;
@@ -65,11 +65,13 @@ public class CategoriaService : ICategoriaService
         return new CategoriaDto(categoria.Id, categoria.CodigoCategoria, categoria.Descripcion, categoria.Activo, categoria.EncargadoId, encargadoNombre, categoria.PaisId, categoria.Pais!.Nombre);
     }
 
-    private async Task<string?> ResolverEncargadoAsync(int? encargadoId, CancellationToken ct)
+    private async Task<string?> ResolverEncargadoAsync(int? encargadoId, int paisId, CancellationToken ct)
     {
         if (encargadoId is null) return null;
 
-        var usuario = await _db.Usuarios.AsNoTracking().FirstOrDefaultAsync(u => u.Id == encargadoId && u.Activo, ct)
+        // También validado server-side (no solo confiar en que el dropdown del frontend
+        // ya filtra) — mismo criterio que ProductoService con categoría/unidad.
+        var usuario = await _db.Usuarios.AsNoTracking().FirstOrDefaultAsync(u => u.Id == encargadoId && u.PaisId == paisId && u.Activo, ct)
             ?? throw new UsuarioNoEncontradoException(encargadoId.Value);
 
         return usuario.NombreCompleto;

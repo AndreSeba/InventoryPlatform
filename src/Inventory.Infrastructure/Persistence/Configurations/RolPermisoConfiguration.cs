@@ -7,52 +7,19 @@ namespace Inventory.Infrastructure.Persistence.Configurations;
 
 public class RolPermisoConfiguration : IEntityTypeConfiguration<RolPermiso>
 {
-    // Roles seed — Id fijo para poder referenciarlos desde el seed de RolPermiso.
-    public const int RolAdministradorId = 1;
-    public const int RolOperadorId = 2;
-    public const int RolConsultaId = 3;
-    public const int RolSolicitanteId = 4;
-
-    // InicioVer se agrega acá explícito (antes el link de Inicio era incondicional para
-    // cualquier logueado, ahora depende de este permiso) — sin esto Operador/Consulta
-    // dejarían de ver Inicio, que es una regresión, no el cambio pedido.
-    private static readonly string[] PermisosOperador =
-    [
-        Permisos.InicioVer,
-        Permisos.ProductosVer,
-        Permisos.MovimientosVer, Permisos.MovimientosEntrada, Permisos.MovimientosSalida,
-        Permisos.MovimientosAjuste, Permisos.MovimientosDevolucion,
-        Permisos.SolicitudesVer, Permisos.SolicitudesCrear, Permisos.SolicitudesEntregar,
-        Permisos.ConteosVer, Permisos.ConteosRegistrar,
-        Permisos.CategoriasVer, Permisos.AreasVer, Permisos.UbicacionesVer,
-        Permisos.UnidadesVer, Permisos.AlmacenesVer,
-    ];
-
-    private static readonly string[] PermisosConsulta =
-    [
-        Permisos.InicioVer,
-        Permisos.ProductosVer, Permisos.MovimientosVer, Permisos.SolicitudesVer,
-        Permisos.ConteosVer, Permisos.CategoriasVer, Permisos.AreasVer, Permisos.UbicacionesVer,
-        Permisos.UnidadesVer, Permisos.AlmacenesVer,
-    ];
-
-    // Rol nuevo (2026-09-15, pedido explícito del usuario): gente que solo carga
-    // solicitudes de material, sin ver Inicio ni el listado completo de Solicitudes de
-    // todos — ve "Mis solicitudes" (ver SolicitudesController.ListarMias), filtrado a lo
-    // suyo. Productos/Áreas/Ubicaciones en modo Ver son necesarios para poder ARMAR una
-    // solicitud (elegir producto y área) y ver el detalle de la propia (que carga
-    // ubicaciones para el combo de entrega, aunque este rol no pueda entregar) — no es
-    // que puedan gestionar esos catálogos, solo leerlos.
-    // CategoriasVer/UnidadesVer se agregaron 2026-09-17 (pedido explícito): el carrito de
-    // Entrada deja dar de alta un producto nuevo sobre la marcha (ver
-    // ProductosController.CrearRapido, gateado por solicitudes.crear) y ese alta necesita
-    // elegir Categoria + Unidad — sin estos permisos esos selectores quedan vacíos.
-    private static readonly string[] PermisosSolicitante =
-    [
-        Permisos.SolicitudesCrear,
-        Permisos.ProductosVer, Permisos.AreasVer, Permisos.UbicacionesVer,
-        Permisos.CategoriasVer, Permisos.UnidadesVer,
-    ];
+    // Roles seed — Ids fijos para poder referenciarlos desde el seed de RolPermiso.
+    // Bolivia (PaisId=1) conserva los 4 Ids originales; Perú (PaisId=2) suma los 4
+    // siguientes — ver RolConfiguration.HasData. Un país agregado después de la
+    // migración (vía /paises) no pasa por acá, lo siembra PaisService.CrearAsync
+    // con Ids que EF asigna solo, usando la misma RolesPorDefecto.
+    public const int RolAdministradorBoliviaId = 1;
+    public const int RolOperadorBoliviaId = 2;
+    public const int RolConsultaBoliviaId = 3;
+    public const int RolSolicitanteBoliviaId = 4;
+    public const int RolAdministradorPeruId = 5;
+    public const int RolOperadorPeruId = 6;
+    public const int RolConsultaPeruId = 7;
+    public const int RolSolicitantePeruId = 8;
 
     public void Configure(EntityTypeBuilder<RolPermiso> builder)
     {
@@ -67,11 +34,17 @@ public class RolPermisoConfiguration : IEntityTypeConfiguration<RolPermiso>
             .ToDictionary(x => x.Codigo, x => x.Id);
 
         var seed = new List<RolPermiso>();
-        // Administrador: todos los permisos del catálogo.
-        seed.AddRange(codigoAId.Values.Select(permisoId => new RolPermiso { RolId = RolAdministradorId, PermisoId = permisoId }));
-        seed.AddRange(PermisosOperador.Select(codigo => new RolPermiso { RolId = RolOperadorId, PermisoId = codigoAId[codigo] }));
-        seed.AddRange(PermisosConsulta.Select(codigo => new RolPermiso { RolId = RolConsultaId, PermisoId = codigoAId[codigo] }));
-        seed.AddRange(PermisosSolicitante.Select(codigo => new RolPermiso { RolId = RolSolicitanteId, PermisoId = codigoAId[codigo] }));
+        void SembrarPais(int administradorId, int operadorId, int consultaId, int solicitanteId)
+        {
+            // Administrador: todos los permisos del catálogo.
+            seed.AddRange(codigoAId.Values.Select(permisoId => new RolPermiso { RolId = administradorId, PermisoId = permisoId }));
+            seed.AddRange(RolesPorDefecto.PermisosOperador.Select(codigo => new RolPermiso { RolId = operadorId, PermisoId = codigoAId[codigo] }));
+            seed.AddRange(RolesPorDefecto.PermisosConsulta.Select(codigo => new RolPermiso { RolId = consultaId, PermisoId = codigoAId[codigo] }));
+            seed.AddRange(RolesPorDefecto.PermisosSolicitante.Select(codigo => new RolPermiso { RolId = solicitanteId, PermisoId = codigoAId[codigo] }));
+        }
+
+        SembrarPais(RolAdministradorBoliviaId, RolOperadorBoliviaId, RolConsultaBoliviaId, RolSolicitanteBoliviaId);
+        SembrarPais(RolAdministradorPeruId, RolOperadorPeruId, RolConsultaPeruId, RolSolicitantePeruId);
 
         builder.HasData(seed);
     }

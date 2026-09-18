@@ -22,21 +22,25 @@ public class AuthService : IAuthService
     {
         var email = dto.Email.Trim().ToLowerInvariant();
 
+        // Un login = un país, y ahora también un Usuario de ESE país (Usuario pasó a ser
+        // por país — el mismo email puede existir como cuentas distintas en países
+        // distintos). El país se valida primero porque el lookup de Usuario ya depende de él.
+        var pais = await _db.Paises.FirstOrDefaultAsync(p => p.Id == dto.PaisId && p.Activo, ct)
+            ?? throw new PaisNoEncontradoException(dto.PaisId);
+
         var usuario = await _db.Usuarios
             .Include(u => u.Rol!).ThenInclude(r => r.RolPermisos).ThenInclude(rp => rp.Permiso)
-            .FirstOrDefaultAsync(u => u.Email.ToLower() == email, ct)
-            ?? throw new CredencialesInvalidasException();
+            .FirstOrDefaultAsync(u => u.Email.ToLower() == email && u.PaisId == pais.Id, ct)
+            ?? throw new CredencialesInvalidasException(); // mismo error genérico que
+                                                             // contraseña incorrecta — no
+                                                             // revela que el email existe
+                                                             // en OTRO país.
 
         if (!BCrypt.Net.BCrypt.Verify(dto.Password, usuario.PasswordHash))
             throw new CredencialesInvalidasException();
 
         if (!usuario.Activo)
             throw new UsuarioInactivoException();
-
-        // Un login = un país (ver JwtTokenService) — cualquier usuario puede elegir
-        // cualquier país activo del selector, no es un atributo fijo del Usuario.
-        var pais = await _db.Paises.FirstOrDefaultAsync(p => p.Id == dto.PaisId && p.Activo, ct)
-            ?? throw new PaisNoEncontradoException(dto.PaisId);
 
         var permisos = usuario.Rol!.RolPermisos.Select(rp => rp.Permiso!.Codigo).ToList();
         var (token, expiraEn) = _tokenService.GenerarToken(usuario, permisos, pais.Id);
@@ -46,7 +50,8 @@ public class AuthService : IAuthService
 
         var usuarioDto = new UsuarioDto(
             usuario.Id, usuario.Email, usuario.NombreCompleto, usuario.RolId, usuario.Rol.Nombre,
-            usuario.Activo, usuario.CreadoEn, usuario.UltimoLoginEn, permisos
+            usuario.Activo, usuario.CreadoEn, usuario.UltimoLoginEn, permisos,
+            usuario.PaisId, pais.Nombre
         );
 
         return new LoginResultDto(token, expiraEn, usuarioDto, pais.Id, pais.Nombre, pais.CodigoIso);
