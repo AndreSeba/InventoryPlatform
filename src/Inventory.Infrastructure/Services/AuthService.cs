@@ -33,8 +33,13 @@ public class AuthService : IAuthService
         if (!usuario.Activo)
             throw new UsuarioInactivoException();
 
+        // Un login = un país (ver JwtTokenService) — cualquier usuario puede elegir
+        // cualquier país activo del selector, no es un atributo fijo del Usuario.
+        var pais = await _db.Paises.FirstOrDefaultAsync(p => p.Id == dto.PaisId && p.Activo, ct)
+            ?? throw new PaisNoEncontradoException(dto.PaisId);
+
         var permisos = usuario.Rol!.RolPermisos.Select(rp => rp.Permiso!.Codigo).ToList();
-        var (token, expiraEn) = _tokenService.GenerarToken(usuario, permisos);
+        var (token, expiraEn) = _tokenService.GenerarToken(usuario, permisos, pais.Id);
 
         usuario.UltimoLoginEn = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
@@ -44,6 +49,6 @@ public class AuthService : IAuthService
             usuario.Activo, usuario.CreadoEn, usuario.UltimoLoginEn, permisos
         );
 
-        return new LoginResultDto(token, expiraEn, usuarioDto);
+        return new LoginResultDto(token, expiraEn, usuarioDto, pais.Id, pais.Nombre, pais.CodigoIso);
     }
 }

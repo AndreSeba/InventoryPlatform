@@ -25,7 +25,7 @@ public class RolPermisoConfiguration : IEntityTypeConfiguration<RolPermiso>
         Permisos.SolicitudesVer, Permisos.SolicitudesCrear, Permisos.SolicitudesEntregar,
         Permisos.ConteosVer, Permisos.ConteosRegistrar,
         Permisos.CategoriasVer, Permisos.AreasVer, Permisos.UbicacionesVer,
-        Permisos.UnidadesVer,
+        Permisos.UnidadesVer, Permisos.AlmacenesVer,
     ];
 
     private static readonly string[] PermisosConsulta =
@@ -33,7 +33,7 @@ public class RolPermisoConfiguration : IEntityTypeConfiguration<RolPermiso>
         Permisos.InicioVer,
         Permisos.ProductosVer, Permisos.MovimientosVer, Permisos.SolicitudesVer,
         Permisos.ConteosVer, Permisos.CategoriasVer, Permisos.AreasVer, Permisos.UbicacionesVer,
-        Permisos.UnidadesVer,
+        Permisos.UnidadesVer, Permisos.AlmacenesVer,
     ];
 
     // Rol nuevo (2026-09-15, pedido explícito del usuario): gente que solo carga

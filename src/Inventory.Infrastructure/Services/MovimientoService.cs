@@ -15,7 +15,7 @@ public class MovimientoService : IMovimientoService
 
     public MovimientoService(InventoryDbContext db) => _db = db;
 
-    public Task<MovimientoResultadoDto> RegistrarEntradaAsync(RegistrarEntradaDto dto, UsuarioActuante usuario, CancellationToken ct) =>
+    public Task<MovimientoResultadoDto> RegistrarEntradaAsync(RegistrarEntradaDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct) =>
         EjecutarAsync(async (producto, ubicacion, tx) =>
         {
             var detalle = await ValidarDetalleParaEntregaAsync(dto.SolicitudDetalleId, dto.Cantidad, ct);
@@ -29,9 +29,9 @@ public class MovimientoService : IMovimientoService
                 await AcumularEntregaAsync(detalle, dto.Cantidad, ct);
 
             return movimiento;
-        }, dto.ProductoId, dto.UbicacionId, ct);
+        }, dto.ProductoId, dto.UbicacionId, paisId, ct);
 
-    public Task<MovimientoResultadoDto> RegistrarSalidaAsync(RegistrarSalidaDto dto, UsuarioActuante usuario, CancellationToken ct) =>
+    public Task<MovimientoResultadoDto> RegistrarSalidaAsync(RegistrarSalidaDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct) =>
         EjecutarAsync(async (producto, ubicacion, tx) =>
         {
             if (dto.Cantidad <= 0)
@@ -55,9 +55,9 @@ public class MovimientoService : IMovimientoService
                 await AcumularEntregaAsync(detalle, dto.Cantidad, ct);
 
             return movimiento;
-        }, dto.ProductoId, dto.UbicacionId, ct);
+        }, dto.ProductoId, dto.UbicacionId, paisId, ct);
 
-    public Task<MovimientoResultadoDto> RegistrarAjusteAsync(RegistrarAjusteDto dto, UsuarioActuante usuario, CancellationToken ct) =>
+    public Task<MovimientoResultadoDto> RegistrarAjusteAsync(RegistrarAjusteDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct) =>
         EjecutarAsync(async (producto, ubicacion, tx) =>
         {
             if (dto.Cantidad <= 0)
@@ -76,17 +76,19 @@ public class MovimientoService : IMovimientoService
             var movimiento = NuevoMovimiento(producto.Id, tipo, dto.Cantidad, efectiva, ubicacion.Id, usuario, dto.Motivo);
             await GuardarConNumeroAsync(movimiento, "MOV", ct);
             return movimiento;
-        }, dto.ProductoId, dto.UbicacionId, ct);
+        }, dto.ProductoId, dto.UbicacionId, paisId, ct);
 
-    public async Task<MovimientoResultadoDto> RegistrarDevolucionAsync(RegistrarDevolucionDto dto, UsuarioActuante usuario, CancellationToken ct)
+    public async Task<MovimientoResultadoDto> RegistrarDevolucionAsync(RegistrarDevolucionDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
         if (dto.Cantidad <= 0)
             throw new ArgumentOutOfRangeException(nameof(dto.Cantidad), "La cantidad debe ser mayor a cero.");
 
         await using var tx = await _db.Database.BeginTransactionAsync(ct);
 
+        // Filtrado por PaisId (vía el producto del movimiento origen): no se puede
+        // devolver algo que no pertenece al país de la sesión.
         var origen = await _db.Movimientos.Include(m => m.Producto)
-            .FirstOrDefaultAsync(m => m.Id == dto.MovimientoOrigenId, ct)
+            .FirstOrDefaultAsync(m => m.Id == dto.MovimientoOrigenId && m.Producto!.PaisId == paisId, ct)
             ?? throw new MovimientoOrigenInvalidoException($"No existe el movimiento origen {dto.MovimientoOrigenId}.");
 
         // CK_Movimiento_OrigenSoloEntrada + la regla de negocio de la guía v4: una
@@ -102,7 +104,11 @@ public class MovimientoService : IMovimientoService
             throw new MovimientoOrigenInvalidoException(
                 $"La devolución ({dto.Cantidad}) sumada a lo ya devuelto ({yaDevuelto}) supera la cantidad de la salida original ({origen.Cantidad}).");
 
-        var ubicacion = await _db.Ubicaciones.FirstOrDefaultAsync(u => u.Id == dto.UbicacionId && u.Activo, ct)
+        // Filtrado por PaisId (vía Almacen de la ubicación): el mismo criterio que
+        // EjecutarAsync usa para Entrada/Salida/Ajuste — nunca se recibe stock en una
+        // ubicación de otro país.
+        var ubicacion = await _db.Ubicaciones.Include(u => u.Almacen)
+            .FirstOrDefaultAsync(u => u.Id == dto.UbicacionId && u.Almacen!.PaisId == paisId && u.Activo, ct)
             ?? throw new UbicacionNoEncontradaException(dto.UbicacionId);
 
         var movimiento = NuevoMovimiento(origen.ProductoId, TipoMovimiento.Entrada, dto.Cantidad, dto.Cantidad, ubicacion.Id, usuario, dto.Motivo);
@@ -115,18 +121,21 @@ public class MovimientoService : IMovimientoService
         return new MovimientoResultadoDto(movimiento.Id, movimiento.NumeroMovimiento, "CONFIRMADO", movimiento.FechaMovimiento, existenciaResultante);
     }
 
-    public async Task<IReadOnlyList<MovimientoDto>> ListarPorProductoAsync(int productoId, CancellationToken ct)
+    public async Task<IReadOnlyList<MovimientoDto>> ListarPorProductoAsync(int productoId, int paisId, CancellationToken ct)
     {
-        return await _db.Movimientos.AsNoTracking().Include(m => m.Producto).Include(m => m.Ubicacion)
-            .Where(m => m.ProductoId == productoId)
+        return await _db.Movimientos.AsNoTracking().Include(m => m.Producto)
+            .Include(m => m.Ubicacion).ThenInclude(u => u!.Almacen)
+            .Where(m => m.ProductoId == productoId && m.Producto!.PaisId == paisId)
             .OrderByDescending(m => m.FechaMovimiento)
             .Select(m => AMovimientoDto(m))
             .ToListAsync(ct);
     }
 
-    public async Task<IReadOnlyList<MovimientoDto>> ListarAsync(DateTime? desde, DateTime? hasta, CancellationToken ct)
+    public async Task<IReadOnlyList<MovimientoDto>> ListarAsync(int paisId, DateTime? desde, DateTime? hasta, CancellationToken ct)
     {
-        var query = _db.Movimientos.AsNoTracking().Include(m => m.Producto).Include(m => m.Ubicacion).AsQueryable();
+        var query = _db.Movimientos.AsNoTracking().Include(m => m.Producto)
+            .Include(m => m.Ubicacion).ThenInclude(u => u!.Almacen)
+            .Where(m => m.Producto!.PaisId == paisId);
 
         if (desde is not null) query = query.Where(m => m.FechaMovimiento >= desde.Value);
         if (hasta is not null) query = query.Where(m => m.FechaMovimiento <= hasta.Value);
@@ -136,10 +145,11 @@ public class MovimientoService : IMovimientoService
 
     // Equivalente a vw_PrestamosPendientes de la guía v4: salidas con Retorna=1 que
     // todavía no tienen ninguna devolución que las cierre por completo.
-    public async Task<IReadOnlyList<MovimientoDto>> ListarPrestamosPendientesAsync(CancellationToken ct)
+    public async Task<IReadOnlyList<MovimientoDto>> ListarPrestamosPendientesAsync(int paisId, CancellationToken ct)
     {
-        var salidas = await _db.Movimientos.AsNoTracking().Include(m => m.Producto).Include(m => m.Ubicacion)
-            .Where(m => m.TipoMovimiento == TipoMovimiento.Salida && m.Retorna)
+        var salidas = await _db.Movimientos.AsNoTracking().Include(m => m.Producto)
+            .Include(m => m.Ubicacion).ThenInclude(u => u!.Almacen)
+            .Where(m => m.TipoMovimiento == TipoMovimiento.Salida && m.Retorna && m.Producto!.PaisId == paisId)
             .ToListAsync(ct);
 
         if (salidas.Count == 0) return [];
@@ -163,12 +173,12 @@ public class MovimientoService : IMovimientoService
     private const int FilaEncabezadoExcel = 8;
     private const int ColumnasExcel = 11;
 
-    public async Task<(byte[] Contenido, string NombreArchivo)> GenerarExcelAsync(GenerarMovimientosExcelDto dto, CancellationToken ct)
+    public async Task<(byte[] Contenido, string NombreArchivo)> GenerarExcelAsync(GenerarMovimientosExcelDto dto, int paisId, CancellationToken ct)
     {
         var query = _db.Movimientos.AsNoTracking()
             .Include(m => m.Producto).ThenInclude(p => p!.Categoria)
             .Include(m => m.Ubicacion)
-            .AsQueryable();
+            .Where(m => m.Producto!.PaisId == paisId);
 
         if (dto.Tipo is not null) query = query.Where(m => m.TipoMovimiento == dto.Tipo);
         if (dto.CategoriaId is not null) query = query.Where(m => m.Producto!.CategoriaId == dto.CategoriaId);
@@ -290,14 +300,18 @@ public class MovimientoService : IMovimientoService
 
     private async Task<MovimientoResultadoDto> EjecutarAsync(
         Func<Producto, Ubicacion, Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction, Task<Movimiento>> accion,
-        int productoId, int ubicacionId, CancellationToken ct)
+        int productoId, int ubicacionId, int paisId, CancellationToken ct)
     {
         await using var tx = await _db.Database.BeginTransactionAsync(ct);
 
-        var producto = await _db.Productos.FirstOrDefaultAsync(p => p.Id == productoId && p.Activo, ct)
+        // Filtrando producto Y ubicación por el país de la sesión, ninguno de los dos
+        // puede pertenecer a otro país — así se evita de raíz mover stock de un producto
+        // de un país a una ubicación de otro, sin necesitar una validación cruzada aparte.
+        var producto = await _db.Productos.FirstOrDefaultAsync(p => p.Id == productoId && p.PaisId == paisId && p.Activo, ct)
             ?? throw new ProductoNoEncontradoException(productoId);
 
-        var ubicacion = await _db.Ubicaciones.FirstOrDefaultAsync(u => u.Id == ubicacionId && u.Activo, ct)
+        var ubicacion = await _db.Ubicaciones.Include(u => u.Almacen)
+            .FirstOrDefaultAsync(u => u.Id == ubicacionId && u.Almacen!.PaisId == paisId && u.Activo, ct)
             ?? throw new UbicacionNoEncontradaException(ubicacionId);
 
         var movimiento = await accion(producto, ubicacion, tx);
@@ -376,7 +390,9 @@ public class MovimientoService : IMovimientoService
 
     private static MovimientoDto AMovimientoDto(Movimiento m) => new(
         m.Id, m.NumeroMovimiento, m.ProductoId, m.Producto?.Nombre ?? string.Empty, m.TipoMovimiento, m.Cantidad,
-        m.UbicacionId, m.Ubicacion?.CodigoUbicacion ?? string.Empty, m.Retorna, m.UbicacionExterna, m.FechaRetornoEsperada,
+        m.UbicacionId, m.Ubicacion?.CodigoUbicacion ?? string.Empty,
+        m.Ubicacion?.Almacen?.Id ?? 0, m.Ubicacion?.Almacen?.Nombre ?? string.Empty,
+        m.Retorna, m.UbicacionExterna, m.FechaRetornoEsperada,
         m.MovimientoOrigenId, m.SolicitudDetalleId, m.RegistradoPorId, m.RegistradoPorNombre, m.Motivo, m.FechaMovimiento
     );
 }

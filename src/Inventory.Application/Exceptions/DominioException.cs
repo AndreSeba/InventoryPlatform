@@ -200,3 +200,40 @@ public class ArchivoInvalidoException : DominioException
 
     public ArchivoInvalidoException(string mensaje) : base(mensaje) { }
 }
+
+public class PaisNoEncontradoException : DominioException
+{
+    public override int Status => 404;
+
+    public PaisNoEncontradoException(int id) : base($"No existe un país activo con id {id}.") { }
+}
+
+public class CodigoPaisDuplicadoException : DominioException
+{
+    public override int Status => 409;
+
+    public CodigoPaisDuplicadoException(string codigoIso)
+        : base($"Ya existe un país activo con el código ISO '{codigoIso}'.") { }
+}
+
+public class AlmacenNoEncontradoException : DominioException
+{
+    public override int Status => 404;
+
+    public AlmacenNoEncontradoException(int id) : base($"No existe un almacén activo con id {id}.") { }
+}
+
+public class CodigoAlmacenDuplicadoException : DominioException
+{
+    public override int Status => 409;
+
+    public CodigoAlmacenDuplicadoException(string codigo)
+        : base($"Ya existe un almacén activo con el código '{codigo}'.") { }
+}
+
+public class AlmacenInvalidoException : DominioException
+{
+    public override int Status => 400;
+
+    public AlmacenInvalidoException(string mensaje) : base(mensaje) { }
+}

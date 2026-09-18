@@ -15,9 +15,10 @@ public class ProductoService : IProductoService
 
     public ProductoService(InventoryDbContext db) => _db = db;
 
-    public async Task<IReadOnlyList<ProductoDto>> ListarAsync(int? categoriaId, bool incluirInactivos, CancellationToken ct)
+    public async Task<IReadOnlyList<ProductoDto>> ListarAsync(int paisId, int? categoriaId, bool incluirInactivos, CancellationToken ct)
     {
-        var query = _db.Productos.AsNoTracking().Include(p => p.Categoria).AsQueryable();
+        var query = _db.Productos.AsNoTracking().Include(p => p.Categoria).Include(p => p.Pais)
+            .Where(p => p.PaisId == paisId);
 
         if (!incluirInactivos)
             query = query.Where(p => p.Activo);
@@ -29,35 +30,39 @@ public class ProductoService : IProductoService
         return await MapearConExistenciaAsync(productos, ct);
     }
 
-    public async Task<ProductoDto> ObtenerPorIdAsync(int id, CancellationToken ct)
+    public async Task<ProductoDto> ObtenerPorIdAsync(int id, int paisId, CancellationToken ct)
     {
-        var producto = await _db.Productos.AsNoTracking().Include(p => p.Categoria)
-            .FirstOrDefaultAsync(p => p.Id == id, ct)
+        var producto = await _db.Productos.AsNoTracking().Include(p => p.Categoria).Include(p => p.Pais)
+            .FirstOrDefaultAsync(p => p.Id == id && p.PaisId == paisId, ct)
             ?? throw new ProductoNoEncontradoException(id);
 
         var existencia = await CalcularExistenciaAsync(id, ct);
         return AProductoDto(producto, existencia);
     }
 
-    public async Task<SiguienteCodigoDto> ObtenerSiguienteCodigoAsync(int categoriaId, CancellationToken ct)
+    public async Task<SiguienteCodigoDto> ObtenerSiguienteCodigoAsync(int categoriaId, int paisId, CancellationToken ct)
     {
         var categoria = await _db.Categorias.FirstOrDefaultAsync(c => c.Id == categoriaId && c.Activo, ct)
             ?? throw new CategoriaNoEncontradaException(categoriaId);
 
-        var codigo = await GenerarCodigoAsync(categoria, ct);
+        var codigo = await GenerarCodigoAsync(categoria, paisId, ct);
         return new SiguienteCodigoDto(codigo);
     }
 
-    public async Task<ProductoDto> CrearAsync(CrearProductoDto dto, UsuarioActuante usuario, CancellationToken ct)
+    public async Task<ProductoDto> CrearAsync(CrearProductoDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
         var categoria = await _db.Categorias.FirstOrDefaultAsync(c => c.Id == dto.CategoriaId && c.Activo, ct)
             ?? throw new CategoriaNoEncontradaException(dto.CategoriaId);
 
-        var codigo = await GenerarCodigoAsync(categoria, ct);
+        var pais = await _db.Paises.FirstOrDefaultAsync(p => p.Id == paisId && p.Activo, ct)
+            ?? throw new PaisNoEncontradoException(paisId);
+
+        var codigo = await GenerarCodigoAsync(categoria, paisId, ct);
         var unidad = await ResolverUnidadAsync(dto.UnidadMedida, ct);
         var clave = $"{codigo}-{unidad}"; // regla de la guía v4: Codigo + '-' + Unidad
 
-        var yaExiste = await _db.Productos.AnyAsync(p => p.ClaveProducto == clave && p.Activo, ct);
+        // Único por (País, ClaveProducto) — dos países pueden llegar al mismo código.
+        var yaExiste = await _db.Productos.AnyAsync(p => p.PaisId == paisId && p.ClaveProducto == clave && p.Activo, ct);
         if (yaExiste)
             throw new CodigoProductoDuplicadoException(clave);
 
@@ -69,6 +74,7 @@ public class ProductoService : IProductoService
             CodigoProducto = codigo,
             Nombre = dto.Nombre,
             CategoriaId = dto.CategoriaId,
+            PaisId = paisId,
             UnidadMedida = unidad,
             CostoUnitario = dto.CostoUnitario,
             StockMinimo = dto.StockMinimo,
@@ -91,7 +97,7 @@ public class ProductoService : IProductoService
         });
 
         await _db.SaveChangesAsync(ct);
-        return AProductoDto(producto, categoria, 0);
+        return AProductoDto(producto, categoria, pais, 0);
     }
 
     // Las unidades válidas salen del catálogo Unidad (editable desde /unidades), ya no
@@ -107,9 +113,10 @@ public class ProductoService : IProductoService
         return codigo;
     }
 
-    public async Task<ProductoDto> ActualizarAsync(int id, ActualizarProductoDto dto, UsuarioActuante usuario, CancellationToken ct)
+    public async Task<ProductoDto> ActualizarAsync(int id, ActualizarProductoDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
-        var producto = await _db.Productos.Include(p => p.Categoria).FirstOrDefaultAsync(p => p.Id == id, ct)
+        var producto = await _db.Productos.Include(p => p.Categoria).Include(p => p.Pais)
+            .FirstOrDefaultAsync(p => p.Id == id && p.PaisId == paisId, ct)
             ?? throw new ProductoNoEncontradoException(id);
 
         var categoria = producto.CategoriaId == dto.CategoriaId
@@ -134,10 +141,10 @@ public class ProductoService : IProductoService
             // ClaveProducto es "{CodigoProducto}-{Unidad}" (regla de la guía v4). Antes
             // se cambiaba la unidad sin regenerar la clave, así que quedaba mintiendo
             // (clave ...-UNI con UnidadMedida CAJA). Se regenera y se revalida que la
-            // nueva no choque con otro producto activo.
+            // nueva no choque con otro producto activo del mismo país.
             var claveNueva = $"{producto.CodigoProducto}-{unidadNueva}";
             var claveEnUso = await _db.Productos
-                .AnyAsync(p => p.ClaveProducto == claveNueva && p.Activo && p.Id != producto.Id, ct);
+                .AnyAsync(p => p.PaisId == paisId && p.ClaveProducto == claveNueva && p.Activo && p.Id != producto.Id, ct);
             if (claveEnUso)
                 throw new CodigoProductoDuplicadoException(claveNueva);
 
@@ -174,12 +181,12 @@ public class ProductoService : IProductoService
         await _db.SaveChangesAsync(ct);
 
         var existencia = await CalcularExistenciaAsync(id, ct);
-        return AProductoDto(producto, categoria, existencia);
+        return AProductoDto(producto, categoria, producto.Pais!, existencia);
     }
 
-    public async Task DesactivarAsync(int id, UsuarioActuante usuario, CancellationToken ct)
+    public async Task DesactivarAsync(int id, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
-        var producto = await _db.Productos.FirstOrDefaultAsync(p => p.Id == id, ct)
+        var producto = await _db.Productos.FirstOrDefaultAsync(p => p.Id == id && p.PaisId == paisId, ct)
             ?? throw new ProductoNoEncontradoException(id);
 
         producto.Activo = false;
@@ -216,23 +223,29 @@ public class ProductoService : IProductoService
     {
         return await _db.Movimientos.AsNoTracking()
             .Where(m => m.ProductoId == productoId)
-            .GroupBy(m => new { m.UbicacionId, m.Ubicacion!.CodigoUbicacion })
+            .GroupBy(m => new
+            {
+                m.UbicacionId, m.Ubicacion!.CodigoUbicacion,
+                AlmacenId = m.Ubicacion!.Almacen!.Id, AlmacenNombre = m.Ubicacion!.Almacen!.Nombre,
+            })
             .Where(g => g.Sum(m => m.CantidadEfectiva) > 0)
-            .OrderBy(g => g.Key.CodigoUbicacion)
-            .Select(g => new UbicacionConExistenciaDto(g.Key.UbicacionId, g.Key.CodigoUbicacion, g.Sum(m => m.CantidadEfectiva)))
+            .OrderBy(g => g.Key.AlmacenNombre).ThenBy(g => g.Key.CodigoUbicacion)
+            .Select(g => new UbicacionConExistenciaDto(
+                g.Key.UbicacionId, g.Key.CodigoUbicacion, g.Key.AlmacenId, g.Key.AlmacenNombre, g.Sum(m => m.CantidadEfectiva)))
             .ToListAsync(ct);
     }
 
     // CERE-01: primeras 4 letras del código de categoría + correlativo de 2 dígitos.
-    // Cuenta TODOS los productos de la categoría (activos e inactivos) para que el
-    // correlativo nunca retroceda ni se repita si alguno se desactiva.
-    private async Task<string> GenerarCodigoAsync(Categoria categoria, CancellationToken ct)
+    // Cuenta TODOS los productos de la categoría Y país (activos e inactivos) para que
+    // el correlativo nunca retroceda ni se repita si alguno se desactiva — Bolivia y
+    // Perú arrancan cada uno su propio conteo, por eso el filtro incluye PaisId.
+    private async Task<string> GenerarCodigoAsync(Categoria categoria, int paisId, CancellationToken ct)
     {
         var prefijo = categoria.CodigoCategoria.Length >= 4
             ? categoria.CodigoCategoria[..4].ToUpperInvariant()
             : categoria.CodigoCategoria.ToUpperInvariant();
 
-        var cantidadEnCategoria = await _db.Productos.CountAsync(p => p.CategoriaId == categoria.Id, ct);
+        var cantidadEnCategoria = await _db.Productos.CountAsync(p => p.CategoriaId == categoria.Id && p.PaisId == paisId, ct);
         return $"{prefijo}-{(cantidadEnCategoria + 1):D2}";
     }
 
@@ -281,10 +294,11 @@ public class ProductoService : IProductoService
             throw new ArchivoInvalidoException("Formato no permitido. Usá JPG, PNG o WEBP.");
     }
 
-    private static ProductoDto AProductoDto(Producto p, int existencia) => AProductoDto(p, p.Categoria!, existencia);
+    private static ProductoDto AProductoDto(Producto p, int existencia) => AProductoDto(p, p.Categoria!, p.Pais!, existencia);
 
-    private static ProductoDto AProductoDto(Producto p, Categoria categoria, int existencia) => new(
+    private static ProductoDto AProductoDto(Producto p, Categoria categoria, Pais pais, int existencia) => new(
         p.Id, p.ClaveProducto, p.CodigoProducto, p.Nombre, p.CategoriaId, categoria.CodigoCategoria,
+        p.PaisId, pais.Nombre,
         p.UnidadMedida, p.CostoUnitario, p.StockMinimo, p.Detalle,
         p.ImagenData is not null ? $"/api/productos/{p.Id}/imagen" : null,
         p.Activo, existencia

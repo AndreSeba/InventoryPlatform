@@ -28,9 +28,15 @@ public class ProductoConfiguration : IEntityTypeConfiguration<Producto>
             .HasForeignKey(p => p.CategoriaId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        // Único solo entre productos activos (mismo criterio que en el resto del
-        // proyecto): permite reutilizar la clave tras desactivar el producto anterior.
-        builder.HasIndex(p => p.ClaveProducto).IsUnique().HasFilter("[Activo] = 1");
+        builder.HasOne(p => p.Pais)
+            .WithMany()
+            .HasForeignKey(p => p.PaisId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // Único por (País, ClaveProducto), ya no global — Bolivia y Perú arrancan cada
+        // uno su propio correlativo de categoría (ver ProductoService.GenerarCodigoAsync),
+        // así que legítimamente pueden llegar al mismo "BEBI-01-UNI".
+        builder.HasIndex(p => new { p.PaisId, p.ClaveProducto }).IsUnique().HasFilter("[Activo] = 1");
 
         // Sin CHECK de unidades: las unidades validas las define el catalogo Unidad
         // (tabla editable desde /unidades), y ProductoService valida contra el antes

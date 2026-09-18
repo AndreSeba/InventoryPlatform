@@ -13,39 +13,39 @@ public class AreaService : IAreaService
 
     public AreaService(InventoryDbContext db) => _db = db;
 
-    public async Task<IReadOnlyList<AreaDto>> ListarAsync(bool incluirInactivas, CancellationToken ct)
+    public async Task<IReadOnlyList<AreaDto>> ListarAsync(int paisId, bool incluirInactivas, CancellationToken ct)
     {
-        var query = _db.Areas.AsNoTracking();
+        var query = _db.Areas.AsNoTracking().Include(a => a.Pais).Where(a => a.PaisId == paisId);
         if (!incluirInactivas) query = query.Where(a => a.Activo);
 
-        return await query.OrderBy(a => a.NombreArea)
-            .Select(a => new AreaDto(a.Id, a.CodigoArea, a.NombreArea, a.Activo))
-            .ToListAsync(ct);
+        return await query.OrderBy(a => a.NombreArea).Select(a => AAreaDto(a)).ToListAsync(ct);
     }
 
-    public async Task<AreaDto> CrearAsync(CrearAreaDto dto, CancellationToken ct)
+    public async Task<AreaDto> CrearAsync(CrearAreaDto dto, int paisId, CancellationToken ct)
     {
         var codigo = dto.CodigoArea.Trim().ToUpperInvariant();
 
-        var yaExiste = await _db.Areas.AnyAsync(a => a.CodigoArea == codigo && a.Activo, ct);
+        // Único POR PAÍS, no global — dos países pueden repetir un código de área.
+        var yaExiste = await _db.Areas.AnyAsync(a => a.PaisId == paisId && a.CodigoArea == codigo && a.Activo, ct);
         if (yaExiste)
             throw new CodigoAreaDuplicadoException(codigo);
 
-        var area = new Area { CodigoArea = codigo, NombreArea = dto.NombreArea, Activo = true };
+        var area = new Area { CodigoArea = codigo, NombreArea = dto.NombreArea, PaisId = paisId, Activo = true };
         _db.Areas.Add(area);
         await _db.SaveChangesAsync(ct);
 
-        return new AreaDto(area.Id, area.CodigoArea, area.NombreArea, area.Activo);
+        await _db.Entry(area).Reference(a => a.Pais).LoadAsync(ct);
+        return AAreaDto(area);
     }
 
-    public async Task<AreaDto> ActualizarAsync(int id, ActualizarAreaDto dto, CancellationToken ct)
+    public async Task<AreaDto> ActualizarAsync(int id, ActualizarAreaDto dto, int paisId, CancellationToken ct)
     {
-        var area = await _db.Areas.FirstOrDefaultAsync(a => a.Id == id, ct)
+        var area = await _db.Areas.Include(a => a.Pais).FirstOrDefaultAsync(a => a.Id == id && a.PaisId == paisId, ct)
             ?? throw new AreaNoEncontradaException(id);
 
         var codigo = dto.CodigoArea.Trim().ToUpperInvariant();
 
-        var yaExiste = await _db.Areas.AnyAsync(a => a.CodigoArea == codigo && a.Activo && a.Id != id, ct);
+        var yaExiste = await _db.Areas.AnyAsync(a => a.PaisId == paisId && a.CodigoArea == codigo && a.Activo && a.Id != id, ct);
         if (yaExiste)
             throw new CodigoAreaDuplicadoException(codigo);
 
@@ -54,6 +54,8 @@ public class AreaService : IAreaService
         area.Activo = dto.Activo;
 
         await _db.SaveChangesAsync(ct);
-        return new AreaDto(area.Id, area.CodigoArea, area.NombreArea, area.Activo);
+        return AAreaDto(area);
     }
+
+    private static AreaDto AAreaDto(Area a) => new(a.Id, a.CodigoArea, a.NombreArea, a.Activo, a.PaisId, a.Pais?.Nombre ?? string.Empty);
 }

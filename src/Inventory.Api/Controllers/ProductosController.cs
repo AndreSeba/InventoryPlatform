@@ -25,7 +25,7 @@ public class ProductosController : ControllerBase
     public async Task<ActionResult<IReadOnlyList<ProductoDto>>> Listar(
         [FromQuery] int? categoriaId, [FromQuery] bool incluirInactivos, CancellationToken ct)
     {
-        var productos = await _productoService.ListarAsync(categoriaId, incluirInactivos, ct);
+        var productos = await _productoService.ListarAsync(User.ObtenerPaisId(), categoriaId, incluirInactivos, ct);
         return Ok(productos);
     }
 
@@ -35,7 +35,7 @@ public class ProductosController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ProductoDto>> ObtenerPorId(int id, CancellationToken ct)
     {
-        var producto = await _productoService.ObtenerPorIdAsync(id, ct);
+        var producto = await _productoService.ObtenerPorIdAsync(id, User.ObtenerPaisId(), ct);
         return Ok(producto);
     }
 
@@ -49,7 +49,7 @@ public class ProductosController : ControllerBase
     public async Task<ActionResult<ProductoDto>> Crear([FromBody] CrearProductoDto dto, CancellationToken ct)
     {
         var usuario = UsuarioActual();
-        var creado = await _productoService.CrearAsync(dto, usuario, ct);
+        var creado = await _productoService.CrearAsync(dto, User.ObtenerPaisId(), usuario, ct);
         return CreatedAtAction(nameof(ObtenerPorId), new { id = creado.Id }, creado);
     }
 
@@ -65,7 +65,7 @@ public class ProductosController : ControllerBase
     public async Task<ActionResult<ProductoDto>> CrearRapido([FromBody] CrearProductoDto dto, CancellationToken ct)
     {
         var usuario = UsuarioActual();
-        var creado = await _productoService.CrearAsync(dto, usuario, ct);
+        var creado = await _productoService.CrearAsync(dto, User.ObtenerPaisId(), usuario, ct);
         return CreatedAtAction(nameof(ObtenerPorId), new { id = creado.Id }, creado);
     }
 
@@ -77,7 +77,7 @@ public class ProductosController : ControllerBase
     public async Task<ActionResult<ProductoDto>> Actualizar(int id, [FromBody] ActualizarProductoDto dto, CancellationToken ct)
     {
         var usuario = UsuarioActual();
-        var actualizado = await _productoService.ActualizarAsync(id, dto, usuario, ct);
+        var actualizado = await _productoService.ActualizarAsync(id, dto, User.ObtenerPaisId(), usuario, ct);
         return Ok(actualizado);
     }
 
@@ -102,7 +102,7 @@ public class ProductosController : ControllerBase
     public async Task<IActionResult> Desactivar(int id, CancellationToken ct)
     {
         var usuario = UsuarioActual();
-        await _productoService.DesactivarAsync(id, usuario, ct);
+        await _productoService.DesactivarAsync(id, User.ObtenerPaisId(), usuario, ct);
         return NoContent();
     }
 
@@ -120,7 +120,7 @@ public class ProductosController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<SiguienteCodigoDto>> ObtenerSiguienteCodigo([FromQuery] int categoriaId, CancellationToken ct)
     {
-        var resultado = await _productoService.ObtenerSiguienteCodigoAsync(categoriaId, ct);
+        var resultado = await _productoService.ObtenerSiguienteCodigoAsync(categoriaId, User.ObtenerPaisId(), ct);
         return Ok(resultado);
     }
 

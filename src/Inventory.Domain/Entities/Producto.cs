@@ -10,6 +10,15 @@ public class Producto
     public string Nombre { get; set; } = string.Empty;
     public int CategoriaId { get; set; }
     public Categoria? Categoria { get; set; }
+
+    // A qué país pertenece este producto — asignado automático desde el claim de la
+    // sesión al crear (ver ProductoService), nunca elegido a mano. El correlativo de
+    // CodigoProducto se cuenta por (CategoriaId, PaisId): Bolivia y Perú arrancan cada
+    // uno su propio "BEBI-01". ClaveProducto es único por (PaisId, ClaveProducto), no
+    // global — dos países pueden llegar legítimamente al mismo código.
+    public int PaisId { get; set; }
+    public Pais? Pais { get; set; }
+
     public string UnidadMedida { get; set; } = string.Empty; // UNI / CAJA / PQTS
     public decimal? CostoUnitario { get; set; }
     public int StockMinimo { get; set; }

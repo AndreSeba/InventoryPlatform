@@ -7,6 +7,8 @@ public record ProductoDto(
     string Nombre,
     int CategoriaId,
     string CategoriaNombre,
+    int PaisId,
+    string PaisNombre,
     string UnidadMedida,
     decimal? CostoUnitario,
     int StockMinimo,
@@ -49,4 +51,4 @@ public record SiguienteCodigoDto(string Codigo);
 // Usado por Movimientos (Salida/Ajuste negativo) y Conteo físico para no dejar elegir una
 // ubicación donde el producto no tiene nada guardado — solo se listan las que tienen
 // Existencia > 0 en este momento.
-public record UbicacionConExistenciaDto(int UbicacionId, string UbicacionCodigo, int Existencia);
+public record UbicacionConExistenciaDto(int UbicacionId, string UbicacionCodigo, int AlmacenId, string AlmacenNombre, int Existencia);

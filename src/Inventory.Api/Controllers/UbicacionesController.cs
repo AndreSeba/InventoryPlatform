@@ -1,3 +1,4 @@
+using Inventory.Api.Security;
 using Inventory.Application.Dtos;
 using Inventory.Application.Interfaces;
 using Inventory.Domain.Security;
@@ -18,7 +19,7 @@ public class UbicacionesController : ControllerBase
     [HttpGet]
     [Authorize(Policy = Permisos.UbicacionesVer)]
     public async Task<ActionResult<IReadOnlyList<UbicacionDto>>> Listar([FromQuery] bool incluirInactivas, CancellationToken ct)
-        => Ok(await _ubicacionService.ListarAsync(incluirInactivas, ct));
+        => Ok(await _ubicacionService.ListarAsync(User.ObtenerPaisId(), incluirInactivas, ct));
 
     [HttpPost]
     [Authorize(Policy = Permisos.UbicacionesCrear)]
@@ -27,7 +28,7 @@ public class UbicacionesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<UbicacionDto>> Crear([FromBody] CrearUbicacionDto dto, CancellationToken ct)
     {
-        var creada = await _ubicacionService.CrearAsync(dto, ct);
+        var creada = await _ubicacionService.CrearAsync(dto, User.ObtenerPaisId(), ct);
         return CreatedAtAction(nameof(Listar), creada);
     }
 }

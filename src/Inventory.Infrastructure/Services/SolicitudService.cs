@@ -22,12 +22,12 @@ public class SolicitudService : ISolicitudService
         _logger = logger;
     }
 
-    public async Task<IReadOnlyList<SolicitudDto>> ListarAsync(string? estado, CancellationToken ct)
+    public async Task<IReadOnlyList<SolicitudDto>> ListarAsync(int paisId, string? estado, CancellationToken ct)
     {
         var query = _db.Solicitudes.AsNoTracking()
             .Include(s => s.Area)
             .Include(s => s.Detalles).ThenInclude(d => d.Producto)
-            .AsQueryable();
+            .Where(s => s.Area!.PaisId == paisId);
 
         if (!string.IsNullOrWhiteSpace(estado) && Enum.TryParse<EstadoSolicitud>(estado, true, out var estadoEnum))
             query = query.Where(s => s.Estado == estadoEnum);
@@ -36,16 +36,15 @@ public class SolicitudService : ISolicitudService
         return solicitudes.Select(ASolicitudDto).ToList();
     }
 
-    // Mismo filtro por estado que ListarAsync, más SolicitadoPorId == usuarioId — usada por
-    // el rol Solicitante, que no tiene permiso para ver las de todos (ver Permisos.InicioVer
-    // y RolPermisoConfiguration.PermisosSolicitante).
-    public async Task<IReadOnlyList<SolicitudDto>> ListarMiasAsync(int usuarioId, string? estado, CancellationToken ct)
+    // Mismo filtro por estado y país que ListarAsync, más SolicitadoPorId == usuarioId —
+    // usada por el rol Solicitante, que no tiene permiso para ver las de todos (ver
+    // Permisos.InicioVer y RolPermisoConfiguration.PermisosSolicitante).
+    public async Task<IReadOnlyList<SolicitudDto>> ListarMiasAsync(int usuarioId, int paisId, string? estado, CancellationToken ct)
     {
         var query = _db.Solicitudes.AsNoTracking()
             .Include(s => s.Area)
             .Include(s => s.Detalles).ThenInclude(d => d.Producto)
-            .Where(s => s.SolicitadoPorId == usuarioId)
-            .AsQueryable();
+            .Where(s => s.SolicitadoPorId == usuarioId && s.Area!.PaisId == paisId);
 
         if (!string.IsNullOrWhiteSpace(estado) && Enum.TryParse<EstadoSolicitud>(estado, true, out var estadoEnum))
             query = query.Where(s => s.Estado == estadoEnum);
@@ -54,18 +53,18 @@ public class SolicitudService : ISolicitudService
         return solicitudes.Select(ASolicitudDto).ToList();
     }
 
-    public async Task<SolicitudDto> ObtenerPorIdAsync(int id, CancellationToken ct)
+    public async Task<SolicitudDto> ObtenerPorIdAsync(int id, int paisId, CancellationToken ct)
     {
         var solicitud = await _db.Solicitudes.AsNoTracking()
             .Include(s => s.Area)
             .Include(s => s.Detalles).ThenInclude(d => d.Producto)
-            .FirstOrDefaultAsync(s => s.Id == id, ct)
+            .FirstOrDefaultAsync(s => s.Id == id && s.Area!.PaisId == paisId, ct)
             ?? throw new SolicitudNoEncontradaException(id);
 
         return ASolicitudDto(solicitud);
     }
 
-    public async Task<SolicitudDto> CrearAsync(CrearSolicitudDto dto, UsuarioActuante usuario, CancellationToken ct)
+    public async Task<SolicitudDto> CrearAsync(CrearSolicitudDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
         if (dto.Detalles.Count == 0)
             throw new SolicitudEstadoInvalidoException("Una solicitud necesita al menos una línea.");
@@ -73,11 +72,13 @@ public class SolicitudService : ISolicitudService
         if (dto.Detalles.Select(d => d.ProductoId).Distinct().Count() != dto.Detalles.Count)
             throw new SolicitudEstadoInvalidoException("Un mismo producto no puede repetirse en la misma solicitud.");
 
-        var area = await _db.Areas.FirstOrDefaultAsync(a => a.Id == dto.AreaId && a.Activo, ct)
+        // Área y productos tienen que ser del mismo país que la sesión — nunca se arma
+        // una solicitud mezclando el área de un país con productos de otro.
+        var area = await _db.Areas.FirstOrDefaultAsync(a => a.Id == dto.AreaId && a.PaisId == paisId && a.Activo, ct)
             ?? throw new SolicitudEstadoInvalidoException($"No existe un área activa con id {dto.AreaId}.");
 
         var productoIds = dto.Detalles.Select(d => d.ProductoId).ToList();
-        var productosValidos = await _db.Productos.Where(p => productoIds.Contains(p.Id) && p.Activo).Select(p => p.Id).ToListAsync(ct);
+        var productosValidos = await _db.Productos.Where(p => productoIds.Contains(p.Id) && p.PaisId == paisId && p.Activo).Select(p => p.Id).ToListAsync(ct);
         var faltante = productoIds.Except(productosValidos).FirstOrDefault();
         if (faltante != 0)
             throw new ProductoNoEncontradoException(faltante);
@@ -150,10 +151,10 @@ public class SolicitudService : ISolicitudService
         }
     }
 
-    public async Task<SolicitudDto> AprobarAsync(int id, AprobarSolicitudDto dto, UsuarioActuante usuario, CancellationToken ct)
+    public async Task<SolicitudDto> AprobarAsync(int id, AprobarSolicitudDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
         var solicitud = await _db.Solicitudes.Include(s => s.Area).Include(s => s.Detalles).ThenInclude(d => d.Producto)
-            .FirstOrDefaultAsync(s => s.Id == id, ct)
+            .FirstOrDefaultAsync(s => s.Id == id && s.Area!.PaisId == paisId, ct)
             ?? throw new SolicitudNoEncontradaException(id);
 
         if (solicitud.Estado != EstadoSolicitud.Pendiente)
@@ -180,13 +181,13 @@ public class SolicitudService : ISolicitudService
         return ASolicitudDto(solicitud);
     }
 
-    public async Task<SolicitudDto> RechazarAsync(int id, RechazarSolicitudDto dto, UsuarioActuante usuario, CancellationToken ct)
+    public async Task<SolicitudDto> RechazarAsync(int id, RechazarSolicitudDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(dto.MotivoRechazo))
             throw new SolicitudEstadoInvalidoException("Una solicitud rechazada requiere motivo de rechazo.");
 
         var solicitud = await _db.Solicitudes.Include(s => s.Area).Include(s => s.Detalles).ThenInclude(d => d.Producto)
-            .FirstOrDefaultAsync(s => s.Id == id, ct)
+            .FirstOrDefaultAsync(s => s.Id == id && s.Area!.PaisId == paisId, ct)
             ?? throw new SolicitudNoEncontradaException(id);
 
         if (solicitud.Estado != EstadoSolicitud.Pendiente)

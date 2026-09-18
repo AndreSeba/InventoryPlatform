@@ -48,6 +48,14 @@ public static class Permisos
     public const string UnidadesCrear = "unidades.crear";
     public const string UnidadesEditar = "unidades.editar";
 
+    public const string AlmacenesVer = "almacenes.ver";
+    public const string AlmacenesCrear = "almacenes.crear";
+    public const string AlmacenesEditar = "almacenes.editar";
+
+    public const string PaisesVer = "paises.ver";
+    public const string PaisesCrear = "paises.crear";
+    public const string PaisesEditar = "paises.editar";
+
     public static readonly IReadOnlyList<(string Codigo, string Modulo, string Descripcion)> Catalogo =
     [
         (ProductosVer, "Productos", "Ver el catálogo de productos y su existencia"),
@@ -96,5 +104,15 @@ public static class Permisos
         (UnidadesVer, "Unidades", "Ver las unidades de medida"),
         (UnidadesCrear, "Unidades", "Crear unidades de medida"),
         (UnidadesEditar, "Unidades", "Editar unidades de medida existentes"),
+
+        // Agregados 2026-09-18 (módulo País + Almacén), también al final por el mismo
+        // motivo de arriba.
+        (AlmacenesVer, "Almacenes", "Ver almacenes"),
+        (AlmacenesCrear, "Almacenes", "Crear almacenes"),
+        (AlmacenesEditar, "Almacenes", "Editar almacenes existentes"),
+
+        (PaisesVer, "Países", "Ver países"),
+        (PaisesCrear, "Países", "Crear países"),
+        (PaisesEditar, "Países", "Editar países existentes"),
     ];
 }

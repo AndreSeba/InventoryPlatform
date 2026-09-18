@@ -25,4 +25,19 @@ public static class ClaimsPrincipalExtensions
 
         return new UsuarioActuante(id, principal.Identity?.Name ?? string.Empty);
     }
+
+    // País elegido al loguearse (ver JwtTokenService/AuthService) — un login = un país,
+    // así que todos los servicios país-específicos leen esto en vez de recibir un
+    // ?paisId= a mano en cada llamada (fácil de olvidar, y no confiable como única
+    // defensa). Mismo criterio que ObtenerUsuarioActuante: lanza si falta o no parsea,
+    // sin caer a ningún país por default inventado.
+    public static int ObtenerPaisId(this ClaimsPrincipal principal)
+    {
+        var paisClaim = principal.FindFirstValue("pais");
+
+        if (!int.TryParse(paisClaim, out var paisId))
+            throw new InvalidOperationException("El token no trae el país de la sesión (claim 'pais').");
+
+        return paisId;
+    }
 }

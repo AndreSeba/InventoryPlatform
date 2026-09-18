@@ -16,7 +16,7 @@ public class JwtTokenService
         _options = options.Value;
     }
 
-    public (string Token, DateTime ExpiraEn) GenerarToken(Usuario usuario, IEnumerable<string> permisos)
+    public (string Token, DateTime ExpiraEn) GenerarToken(Usuario usuario, IEnumerable<string> permisos, int paisId)
     {
         var expiraEn = DateTime.UtcNow.AddMinutes(_options.ExpiracionMinutos);
 
@@ -26,6 +26,9 @@ public class JwtTokenService
             new(JwtRegisteredClaimNames.Email, usuario.Email),
             new(ClaimTypes.Name, usuario.NombreCompleto),
             new(ClaimTypes.Role, usuario.Rol!.Nombre),
+            // País elegido en el login (ver AuthService/Home.razor) — un login = un país,
+            // no hay forma de cambiarlo sin volver a loguearse (ver ObtenerPaisId).
+            new("pais", paisId.ToString()),
         };
         claims.AddRange(permisos.Select(p => new Claim("permiso", p)));
 

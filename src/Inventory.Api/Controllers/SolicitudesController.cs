@@ -19,14 +19,14 @@ public class SolicitudesController : ControllerBase
     [HttpGet]
     [Authorize(Policy = Permisos.SolicitudesVer)]
     public async Task<ActionResult<IReadOnlyList<SolicitudDto>>> Listar([FromQuery] string? estado, CancellationToken ct)
-        => Ok(await _solicitudService.ListarAsync(estado, ct));
+        => Ok(await _solicitudService.ListarAsync(User.ObtenerPaisId(), estado, ct));
 
     // Para el rol Solicitante (solo solicitudes.crear, sin solicitudes.ver) — la pantalla
     // "Mis solicitudes" del frontend pega acá en vez de a Listar().
     [HttpGet("mias")]
     [Authorize(Policy = Permisos.SolicitudesCrear)]
     public async Task<ActionResult<IReadOnlyList<SolicitudDto>>> ListarMias([FromQuery] string? estado, CancellationToken ct)
-        => Ok(await _solicitudService.ListarMiasAsync(UsuarioActual().Id, estado, ct));
+        => Ok(await _solicitudService.ListarMiasAsync(UsuarioActual().Id, User.ObtenerPaisId(), estado, ct));
 
     // Sin [Authorize(Policy = SolicitudesVer)] a propósito: alguien con solo
     // solicitudes.crear (rol Solicitante) tiene que poder abrir el detalle de SU PROPIA
@@ -38,7 +38,7 @@ public class SolicitudesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<SolicitudDto>> ObtenerPorId(int id, CancellationToken ct)
     {
-        var solicitud = await _solicitudService.ObtenerPorIdAsync(id, ct);
+        var solicitud = await _solicitudService.ObtenerPorIdAsync(id, User.ObtenerPaisId(), ct);
 
         var puedeVerTodas = User.HasClaim("permiso", Permisos.SolicitudesVer);
         var esDueño = solicitud.SolicitadoPorId == UsuarioActual().Id;
@@ -54,7 +54,7 @@ public class SolicitudesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<SolicitudDto>> Crear([FromBody] CrearSolicitudDto dto, CancellationToken ct)
     {
-        var creada = await _solicitudService.CrearAsync(dto, UsuarioActual(), ct);
+        var creada = await _solicitudService.CrearAsync(dto, User.ObtenerPaisId(), UsuarioActual(), ct);
         return CreatedAtAction(nameof(ObtenerPorId), new { id = creada.Id }, creada);
     }
 
@@ -64,7 +64,7 @@ public class SolicitudesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<SolicitudDto>> Aprobar(int id, [FromBody] AprobarSolicitudDto dto, CancellationToken ct)
-        => Ok(await _solicitudService.AprobarAsync(id, dto, UsuarioActual(), ct));
+        => Ok(await _solicitudService.AprobarAsync(id, dto, User.ObtenerPaisId(), UsuarioActual(), ct));
 
     [HttpPost("{id:int}/rechazar")]
     [Authorize(Policy = Permisos.SolicitudesRechazar)]
@@ -72,7 +72,7 @@ public class SolicitudesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<SolicitudDto>> Rechazar(int id, [FromBody] RechazarSolicitudDto dto, CancellationToken ct)
-        => Ok(await _solicitudService.RechazarAsync(id, dto, UsuarioActual(), ct));
+        => Ok(await _solicitudService.RechazarAsync(id, dto, User.ObtenerPaisId(), UsuarioActual(), ct));
 
     // Devuelve id + nombre del usuario logueado. El id sale del claim `sub`, que
     // llega mapeado a ClaimTypes.NameIdentifier — ver ClaimsPrincipalExtensions.

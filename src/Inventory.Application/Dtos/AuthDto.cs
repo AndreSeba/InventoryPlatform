@@ -1,8 +1,11 @@
 namespace Inventory.Application.Dtos;
 
-public record LoginDto(string Email, string Password);
+public record LoginDto(string Email, string Password, int PaisId);
 
-public record LoginResultDto(string Token, DateTime ExpiraEn, UsuarioDto Usuario);
+public record LoginResultDto(
+    string Token, DateTime ExpiraEn, UsuarioDto Usuario,
+    int PaisId, string PaisNombre, string PaisCodigoIso
+);
 
 public record UsuarioDto(
     int Id, string Email, string NombreCompleto, int RolId, string RolNombre,

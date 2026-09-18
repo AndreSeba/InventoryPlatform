@@ -11,6 +11,8 @@ public record MovimientoDto(
     int Cantidad,
     int UbicacionId,
     string UbicacionCodigo,
+    int AlmacenId,
+    string AlmacenNombre,
     bool Retorna,
     string? UbicacionExterna,
     DateOnly? FechaRetornoEsperada,

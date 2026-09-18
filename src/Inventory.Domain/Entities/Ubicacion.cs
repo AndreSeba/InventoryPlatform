@@ -16,5 +16,11 @@ public class Ubicacion
     // codigo ubicacion" de Power Automate): RACK -> Lado-Nro-Nivel, MUEBLE -> M-{Nro}-{Lado}.
     public string CodigoUbicacion { get; set; } = string.Empty;
 
+    // Contenedor real de esta ubicación (propio o de un proveedor externo, en un país
+    // determinado) — CodigoUbicacion es único POR Almacén, ya no global (ver
+    // AlmacenConfiguration/UbicacionConfiguration).
+    public int AlmacenId { get; set; }
+    public Almacen? Almacen { get; set; }
+
     public bool Activo { get; set; } = true;
 }

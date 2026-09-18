@@ -14,6 +14,13 @@ public class AreaConfiguration : IEntityTypeConfiguration<Area>
         builder.Property(a => a.CodigoArea).HasMaxLength(50).IsRequired();
         builder.Property(a => a.NombreArea).HasMaxLength(150).IsRequired();
 
-        builder.HasIndex(a => a.CodigoArea).IsUnique().HasFilter("[Activo] = 1");
+        // Único POR País, ya no global — Bolivia y Perú pueden legítimamente repetir un
+        // código de área (ej. "TM" de Trade Marketing en ambos).
+        builder.HasIndex(a => new { a.PaisId, a.CodigoArea }).IsUnique().HasFilter("[Activo] = 1");
+
+        builder.HasOne(a => a.Pais)
+            .WithMany()
+            .HasForeignKey(a => a.PaisId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

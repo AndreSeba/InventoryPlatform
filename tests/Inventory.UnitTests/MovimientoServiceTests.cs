@@ -20,6 +20,10 @@ public class MovimientoServiceTests : IDisposable
     private readonly MovimientoService _service;
     private readonly UsuarioActuante _usuario;
 
+    // Bolivia (Id=1) y su almacén propio (Id=1) vienen del HasData de
+    // PaisConfiguration/AlmacenConfiguration — EnsureCreated() también aplica seeds.
+    private const int PaisId = 1;
+
     public MovimientoServiceTests()
     {
         _connection = new SqliteConnection("DataSource=:memory:");
@@ -64,6 +68,7 @@ public class MovimientoServiceTests : IDisposable
 
         var ubicacion = new Ubicacion
         {
+            AlmacenId = 1, // Almacén propio de Bolivia (semilla de AlmacenConfiguration)
             TipoUbicacion = TipoUbicacion.Rack,
             Nro = "01",
             Lado = "A",
@@ -79,6 +84,7 @@ public class MovimientoServiceTests : IDisposable
             CodigoProducto = codigo,
             Nombre = "Producto de prueba",
             Categoria = categoria,
+            PaisId = PaisId,
             UnidadMedida = "UNI",
             CostoUnitario = 10m,
             Activo = true,
@@ -93,10 +99,10 @@ public class MovimientoServiceTests : IDisposable
     public async Task RegistrarSalida_ConStockSuficiente_Confirma()
     {
         var (productoId, ubicacionId) = await CrearProductoYUbicacionAsync();
-        await _service.RegistrarEntradaAsync(new RegistrarEntradaDto(productoId, ubicacionId, 100, null), _usuario, default);
+        await _service.RegistrarEntradaAsync(new RegistrarEntradaDto(productoId, ubicacionId, 100, null), PaisId, _usuario, default);
 
         var resultado = await _service.RegistrarSalidaAsync(
-            new RegistrarSalidaDto(productoId, ubicacionId, 30, "Entrega marketing", false, null, null, null), _usuario, default);
+            new RegistrarSalidaDto(productoId, ubicacionId, 30, "Entrega marketing", false, null, null, null), PaisId, _usuario, default);
 
         Assert.Equal("CONFIRMADO", resultado.Estado);
         Assert.Equal(70, resultado.ExistenciaResultante);
@@ -106,10 +112,10 @@ public class MovimientoServiceTests : IDisposable
     public async Task RegistrarSalida_SuperiorAlStockDisponible_RechazaConStockInsuficienteException()
     {
         var (productoId, ubicacionId) = await CrearProductoYUbicacionAsync();
-        await _service.RegistrarEntradaAsync(new RegistrarEntradaDto(productoId, ubicacionId, 10, null), _usuario, default);
+        await _service.RegistrarEntradaAsync(new RegistrarEntradaDto(productoId, ubicacionId, 10, null), PaisId, _usuario, default);
 
         await Assert.ThrowsAsync<StockInsuficienteException>(() =>
-            _service.RegistrarSalidaAsync(new RegistrarSalidaDto(productoId, ubicacionId, 11, null, false, null, null, null), _usuario, default));
+            _service.RegistrarSalidaAsync(new RegistrarSalidaDto(productoId, ubicacionId, 11, null, false, null, null, null), PaisId, _usuario, default));
 
         // La regla exige que el rechazo no deje datos a medias: el movimiento
         // rechazado no debe haberse persistido.
@@ -123,7 +129,7 @@ public class MovimientoServiceTests : IDisposable
         var (productoId, ubicacionId) = await CrearProductoYUbicacionAsync();
 
         await Assert.ThrowsAsync<StockInsuficienteException>(() =>
-            _service.RegistrarSalidaAsync(new RegistrarSalidaDto(productoId, ubicacionId, 1, null, false, null, null, null), _usuario, default));
+            _service.RegistrarSalidaAsync(new RegistrarSalidaDto(productoId, ubicacionId, 1, null, false, null, null, null), PaisId, _usuario, default));
     }
 
     [Fact]
@@ -132,7 +138,7 @@ public class MovimientoServiceTests : IDisposable
         var (_, ubicacionId) = await CrearProductoYUbicacionAsync();
 
         await Assert.ThrowsAsync<ProductoNoEncontradoException>(() =>
-            _service.RegistrarEntradaAsync(new RegistrarEntradaDto(999, ubicacionId, 1, null), _usuario, default));
+            _service.RegistrarEntradaAsync(new RegistrarEntradaDto(999, ubicacionId, 1, null), PaisId, _usuario, default));
     }
 
     [Fact]
@@ -141,31 +147,31 @@ public class MovimientoServiceTests : IDisposable
         var (productoId, ubicacionId) = await CrearProductoYUbicacionAsync();
 
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
-            _service.RegistrarSalidaAsync(new RegistrarSalidaDto(productoId, ubicacionId, 0, null, false, null, null, null), _usuario, default));
+            _service.RegistrarSalidaAsync(new RegistrarSalidaDto(productoId, ubicacionId, 0, null, false, null, null, null), PaisId, _usuario, default));
     }
 
     [Fact]
     public async Task RegistrarAjusteNegativo_SuperiorAlStock_Rechaza()
     {
         var (productoId, ubicacionId) = await CrearProductoYUbicacionAsync();
-        await _service.RegistrarEntradaAsync(new RegistrarEntradaDto(productoId, ubicacionId, 5, null), _usuario, default);
+        await _service.RegistrarEntradaAsync(new RegistrarEntradaDto(productoId, ubicacionId, 5, null), PaisId, _usuario, default);
 
         await Assert.ThrowsAsync<StockInsuficienteException>(() =>
-            _service.RegistrarAjusteAsync(new RegistrarAjusteDto(productoId, ubicacionId, 6, false, "Ajuste por rotura"), _usuario, default));
+            _service.RegistrarAjusteAsync(new RegistrarAjusteDto(productoId, ubicacionId, 6, false, "Ajuste por rotura"), PaisId, _usuario, default));
     }
 
     [Fact]
     public async Task RegistrarDevolucion_SobreSalidaConRetorna_Confirma()
     {
         var (productoId, ubicacionId) = await CrearProductoYUbicacionAsync();
-        await _service.RegistrarEntradaAsync(new RegistrarEntradaDto(productoId, ubicacionId, 20, null), _usuario, default);
+        await _service.RegistrarEntradaAsync(new RegistrarEntradaDto(productoId, ubicacionId, 20, null), PaisId, _usuario, default);
 
         var salida = await _service.RegistrarSalidaAsync(
             new RegistrarSalidaDto(productoId, ubicacionId, 10, "Préstamo evento", true, "Evento Trade Marketing", null, null),
-            _usuario, default);
+            PaisId, _usuario, default);
 
         var devolucion = await _service.RegistrarDevolucionAsync(
-            new RegistrarDevolucionDto(salida.MovimientoId, ubicacionId, 10, "Devolución"), _usuario, default);
+            new RegistrarDevolucionDto(salida.MovimientoId, ubicacionId, 10, "Devolución"), PaisId, _usuario, default);
 
         Assert.Equal("CONFIRMADO", devolucion.Estado);
         Assert.Equal(20, devolucion.ExistenciaResultante); // 20 entrada - 10 salida + 10 devuelto
@@ -175,12 +181,12 @@ public class MovimientoServiceTests : IDisposable
     public async Task RegistrarDevolucion_SobreSalidaSinRetorna_Rechaza()
     {
         var (productoId, ubicacionId) = await CrearProductoYUbicacionAsync();
-        await _service.RegistrarEntradaAsync(new RegistrarEntradaDto(productoId, ubicacionId, 20, null), _usuario, default);
+        await _service.RegistrarEntradaAsync(new RegistrarEntradaDto(productoId, ubicacionId, 20, null), PaisId, _usuario, default);
 
         var salida = await _service.RegistrarSalidaAsync(
-            new RegistrarSalidaDto(productoId, ubicacionId, 10, "Salida normal", false, null, null, null), _usuario, default);
+            new RegistrarSalidaDto(productoId, ubicacionId, 10, "Salida normal", false, null, null, null), PaisId, _usuario, default);
 
         await Assert.ThrowsAsync<MovimientoOrigenInvalidoException>(() =>
-            _service.RegistrarDevolucionAsync(new RegistrarDevolucionDto(salida.MovimientoId, ubicacionId, 10, null), _usuario, default));
+            _service.RegistrarDevolucionAsync(new RegistrarDevolucionDto(salida.MovimientoId, ubicacionId, 10, null), PaisId, _usuario, default));
     }
 }

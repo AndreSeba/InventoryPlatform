@@ -25,7 +25,7 @@ public class MovimientosController : ControllerBase
     public async Task<ActionResult<IReadOnlyList<MovimientoDto>>> Listar(
         [FromQuery] DateTime? desde, [FromQuery] DateTime? hasta, CancellationToken ct)
     {
-        var movimientos = await _movimientoService.ListarAsync(desde, hasta, ct);
+        var movimientos = await _movimientoService.ListarAsync(User.ObtenerPaisId(), desde, hasta, ct);
         return Ok(movimientos);
     }
 
@@ -34,7 +34,7 @@ public class MovimientosController : ControllerBase
     [ProducesResponseType(typeof(IReadOnlyList<MovimientoDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<MovimientoDto>>> ListarPorProducto(int productoId, CancellationToken ct)
     {
-        var movimientos = await _movimientoService.ListarPorProductoAsync(productoId, ct);
+        var movimientos = await _movimientoService.ListarPorProductoAsync(productoId, User.ObtenerPaisId(), ct);
         return Ok(movimientos);
     }
 
@@ -44,7 +44,7 @@ public class MovimientosController : ControllerBase
     [ProducesResponseType(typeof(IReadOnlyList<MovimientoDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<MovimientoDto>>> ListarPrestamosPendientes(CancellationToken ct)
     {
-        var prestamos = await _movimientoService.ListarPrestamosPendientesAsync(ct);
+        var prestamos = await _movimientoService.ListarPrestamosPendientesAsync(User.ObtenerPaisId(), ct);
         return Ok(prestamos);
     }
 
@@ -53,7 +53,7 @@ public class MovimientosController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> GenerarExcel([FromBody] GenerarMovimientosExcelDto dto, CancellationToken ct)
     {
-        var (contenido, nombreArchivo) = await _movimientoService.GenerarExcelAsync(dto, ct);
+        var (contenido, nombreArchivo) = await _movimientoService.GenerarExcelAsync(dto, User.ObtenerPaisId(), ct);
         return File(contenido, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", nombreArchivo);
     }
 
@@ -63,7 +63,7 @@ public class MovimientosController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<MovimientoResultadoDto>> RegistrarEntrada([FromBody] RegistrarEntradaDto dto, CancellationToken ct)
     {
-        var resultado = await _movimientoService.RegistrarEntradaAsync(dto, UsuarioActual(), ct);
+        var resultado = await _movimientoService.RegistrarEntradaAsync(dto, User.ObtenerPaisId(), UsuarioActual(), ct);
         return CreatedAtAction(nameof(ListarPorProducto), new { productoId = dto.ProductoId }, resultado);
     }
 
@@ -74,7 +74,7 @@ public class MovimientosController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<MovimientoResultadoDto>> RegistrarSalida([FromBody] RegistrarSalidaDto dto, CancellationToken ct)
     {
-        var resultado = await _movimientoService.RegistrarSalidaAsync(dto, UsuarioActual(), ct);
+        var resultado = await _movimientoService.RegistrarSalidaAsync(dto, User.ObtenerPaisId(), UsuarioActual(), ct);
         return CreatedAtAction(nameof(ListarPorProducto), new { productoId = dto.ProductoId }, resultado);
     }
 
@@ -85,7 +85,7 @@ public class MovimientosController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<MovimientoResultadoDto>> RegistrarAjuste([FromBody] RegistrarAjusteDto dto, CancellationToken ct)
     {
-        var resultado = await _movimientoService.RegistrarAjusteAsync(dto, UsuarioActual(), ct);
+        var resultado = await _movimientoService.RegistrarAjusteAsync(dto, User.ObtenerPaisId(), UsuarioActual(), ct);
         return CreatedAtAction(nameof(ListarPorProducto), new { productoId = dto.ProductoId }, resultado);
     }
 
@@ -96,7 +96,7 @@ public class MovimientosController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<MovimientoResultadoDto>> RegistrarDevolucion([FromBody] RegistrarDevolucionDto dto, CancellationToken ct)
     {
-        var resultado = await _movimientoService.RegistrarDevolucionAsync(dto, UsuarioActual(), ct);
+        var resultado = await _movimientoService.RegistrarDevolucionAsync(dto, User.ObtenerPaisId(), UsuarioActual(), ct);
         return CreatedAtAction(nameof(Listar), resultado);
     }
 

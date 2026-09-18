@@ -16,7 +16,14 @@ public class UbicacionConfiguration : IEntityTypeConfiguration<Ubicacion>
         builder.Property(u => u.Nivel).HasMaxLength(20);
         builder.Property(u => u.CodigoUbicacion).HasMaxLength(60).IsRequired();
 
-        builder.HasIndex(u => u.CodigoUbicacion).IsUnique().HasFilter("[Activo] = 1");
+        // Único POR Almacén, ya no global — con varios almacenes/países coexistiendo, dos
+        // de ellos legítimamente pueden repetir un código de rack (ej. "A-04-01").
+        builder.HasIndex(u => new { u.AlmacenId, u.CodigoUbicacion }).IsUnique().HasFilter("[Activo] = 1");
+
+        builder.HasOne(u => u.Almacen)
+            .WithMany()
+            .HasForeignKey(u => u.AlmacenId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         // CK_Ubicacion_Nivel (guía v4, 5.9): un RACK exige Nivel, un MUEBLE no lo lleva.
         // TipoUbicacion: Rack=1, Mueble=2.

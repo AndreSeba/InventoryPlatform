@@ -19,7 +19,7 @@ public class ConteosController : ControllerBase
     [HttpGet("sesion/{sesionConteo}")]
     [Authorize(Policy = Permisos.ConteosVer)]
     public async Task<ActionResult<IReadOnlyList<ConteoDto>>> ListarPorSesion(string sesionConteo, CancellationToken ct)
-        => Ok(await _conteoService.ListarPorSesionAsync(sesionConteo, ct));
+        => Ok(await _conteoService.ListarPorSesionAsync(sesionConteo, User.ObtenerPaisId(), ct));
 
     [HttpPost]
     [Authorize(Policy = Permisos.ConteosRegistrar)]
@@ -28,7 +28,7 @@ public class ConteosController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<ConteoDto>> Registrar([FromBody] RegistrarConteoDto dto, CancellationToken ct)
     {
-        var creado = await _conteoService.RegistrarAsync(dto, UsuarioActual(), ct);
+        var creado = await _conteoService.RegistrarAsync(dto, User.ObtenerPaisId(), UsuarioActual(), ct);
         return CreatedAtAction(nameof(ListarPorSesion), new { sesionConteo = creado.SesionConteo }, creado);
     }
 
@@ -39,7 +39,7 @@ public class ConteosController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GenerarHoja([FromBody] GenerarHojaConteoDto dto, CancellationToken ct)
     {
-        var (contenido, nombreArchivo, _) = await _conteoService.GenerarHojaConteoAsync(dto, ct);
+        var (contenido, nombreArchivo, _) = await _conteoService.GenerarHojaConteoAsync(dto, User.ObtenerPaisId(), ct);
         return File(contenido, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", nombreArchivo);
     }
 
@@ -54,7 +54,7 @@ public class ConteosController : ControllerBase
             return BadRequest(new ProblemDetails { Detail = "Subí el archivo de la hoja de conteo." });
 
         await using var stream = archivo.OpenReadStream();
-        var resultado = await _conteoService.ImportarHojaConteoAsync(stream, UsuarioActual(), ct);
+        var resultado = await _conteoService.ImportarHojaConteoAsync(stream, User.ObtenerPaisId(), UsuarioActual(), ct);
         return Ok(resultado);
     }
 

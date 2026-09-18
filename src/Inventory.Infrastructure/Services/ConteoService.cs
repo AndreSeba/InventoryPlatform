@@ -14,17 +14,20 @@ public class ConteoService : IConteoService
 
     public ConteoService(InventoryDbContext db) => _db = db;
 
-    public async Task<ConteoDto> RegistrarAsync(RegistrarConteoDto dto, UsuarioActuante usuario, CancellationToken ct)
+    public async Task<ConteoDto> RegistrarAsync(RegistrarConteoDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
         if (dto.NumeroConteo < 1)
             throw new ArgumentOutOfRangeException(nameof(dto.NumeroConteo), "El número de conteo debe ser 1 o mayor.");
         if (dto.CantidadContada < 0)
             throw new ArgumentOutOfRangeException(nameof(dto.CantidadContada), "La cantidad contada no puede ser negativa.");
 
-        var producto = await _db.Productos.FirstOrDefaultAsync(p => p.Id == dto.ProductoId && p.Activo, ct)
+        // Filtrando producto Y ubicación por el país de la sesión, igual que
+        // MovimientoService — evita de raíz contar stock de un producto de otro país.
+        var producto = await _db.Productos.FirstOrDefaultAsync(p => p.Id == dto.ProductoId && p.PaisId == paisId && p.Activo, ct)
             ?? throw new ProductoNoEncontradoException(dto.ProductoId);
 
-        var ubicacion = await _db.Ubicaciones.FirstOrDefaultAsync(u => u.Id == dto.UbicacionId && u.Activo, ct)
+        var ubicacion = await _db.Ubicaciones.Include(u => u.Almacen)
+            .FirstOrDefaultAsync(u => u.Id == dto.UbicacionId && u.Almacen!.PaisId == paisId && u.Activo, ct)
             ?? throw new UbicacionNoEncontradaException(dto.UbicacionId);
 
         // UQ_Conteo_Sesion (guía v3/v4): permite reconteos, no duplicar el mismo número.
@@ -60,11 +63,11 @@ public class ConteoService : IConteoService
         );
     }
 
-    public async Task<IReadOnlyList<ConteoDto>> ListarPorSesionAsync(string sesionConteo, CancellationToken ct)
+    public async Task<IReadOnlyList<ConteoDto>> ListarPorSesionAsync(string sesionConteo, int paisId, CancellationToken ct)
     {
         var conteos = await _db.Conteos.AsNoTracking()
             .Include(c => c.Producto).Include(c => c.Ubicacion)
-            .Where(c => c.SesionConteo == sesionConteo)
+            .Where(c => c.SesionConteo == sesionConteo && c.Producto!.PaisId == paisId)
             .OrderBy(c => c.Producto!.Nombre).ThenBy(c => c.NumeroConteo)
             .ToListAsync(ct);
 
@@ -100,7 +103,7 @@ public class ConteoService : IConteoService
     // tiene stock ahora mismo — un producto guardado en 3 racks genera 3 filas. Reusa el
     // mismo criterio de "dónde tiene stock" que ProductoService.ListarUbicacionesConStockAsync,
     // pero de una sola consulta agrupada para todos los productos elegidos a la vez.
-    public async Task<(byte[] Contenido, string NombreArchivo, string SesionConteo)> GenerarHojaConteoAsync(GenerarHojaConteoDto dto, CancellationToken ct)
+    public async Task<(byte[] Contenido, string NombreArchivo, string SesionConteo)> GenerarHojaConteoAsync(GenerarHojaConteoDto dto, int paisId, CancellationToken ct)
     {
         // La hoja se arma SIEMPRE sobre productos elegidos uno por uno (2026-09-16). Antes,
         // si no venía selección, caía a "todos los productos activos" (o a una categoría
@@ -112,7 +115,7 @@ public class ConteoService : IConteoService
         var idsPedidos = dto.ProductoIds.Distinct().ToList();
 
         var productos = await _db.Productos.AsNoTracking().Include(p => p.Categoria)
-            .Where(p => p.Activo && idsPedidos.Contains(p.Id))
+            .Where(p => p.Activo && p.PaisId == paisId && idsPedidos.Contains(p.Id))
             .OrderBy(p => p.Nombre)
             .ToListAsync(ct);
 
@@ -228,7 +231,7 @@ public class ConteoService : IConteoService
         return (stream.ToArray(), nombreArchivo, sesionConteo);
     }
 
-    public async Task<ImportarHojaConteoResultadoDto> ImportarHojaConteoAsync(Stream archivo, UsuarioActuante usuario, CancellationToken ct)
+    public async Task<ImportarHojaConteoResultadoDto> ImportarHojaConteoAsync(Stream archivo, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
         XLWorkbook libro;
         try
@@ -283,7 +286,7 @@ public class ConteoService : IConteoService
 
                 var registrado = await RegistrarAsync(
                     new RegistrarConteoDto(sesionConteo, productoId, ubicacionId, (ultimoNumero ?? 0) + 1, cantidad),
-                    usuario, ct);
+                    paisId, usuario, ct);
 
                 if (registrado.Diferencia != 0)
                     conDiferencia.Add(registrado);
