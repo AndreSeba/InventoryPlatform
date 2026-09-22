@@ -10,8 +10,15 @@ namespace Inventory.Infrastructure.Services;
 public class CategoriaService : ICategoriaService
 {
     private readonly InventoryDbContext _db;
+    private readonly IAuditoriaService _auditoria;
 
-    public CategoriaService(InventoryDbContext db) => _db = db;
+    public CategoriaService(InventoryDbContext db, IAuditoriaService auditoria)
+    {
+        _db = db;
+        _auditoria = auditoria;
+    }
+
+    private static object Snapshot(Categoria c) => new { c.CodigoCategoria, c.Descripcion, c.EncargadoId, c.Activo };
 
     public async Task<IReadOnlyList<CategoriaDto>> ListarAsync(int paisId, bool incluirInactivas, CancellationToken ct)
     {
@@ -24,7 +31,7 @@ public class CategoriaService : ICategoriaService
             .ToListAsync(ct);
     }
 
-    public async Task<CategoriaDto> CrearAsync(CrearCategoriaDto dto, int paisId, CancellationToken ct)
+    public async Task<CategoriaDto> CrearAsync(CrearCategoriaDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
         var codigo = dto.CodigoCategoria.Trim().ToUpperInvariant();
 
@@ -39,14 +46,18 @@ public class CategoriaService : ICategoriaService
         _db.Categorias.Add(categoria);
         await _db.SaveChangesAsync(ct);
 
+        await _auditoria.RegistrarAsync(nameof(Categoria), categoria.CodigoCategoria, "Crear", null, _auditoria.Capturar(Snapshot(categoria)), paisId, usuario, null, ct);
+
         await _db.Entry(categoria).Reference(c => c.Pais).LoadAsync(ct);
         return new CategoriaDto(categoria.Id, categoria.CodigoCategoria, categoria.Descripcion, categoria.Activo, categoria.EncargadoId, encargadoNombre, categoria.PaisId, categoria.Pais!.Nombre);
     }
 
-    public async Task<CategoriaDto> ActualizarAsync(int id, ActualizarCategoriaDto dto, int paisId, CancellationToken ct)
+    public async Task<CategoriaDto> ActualizarAsync(int id, ActualizarCategoriaDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
         var categoria = await _db.Categorias.Include(c => c.Pais).FirstOrDefaultAsync(c => c.Id == id && c.PaisId == paisId, ct)
             ?? throw new CategoriaNoEncontradaException(id);
+
+        var anterior = _auditoria.Capturar(Snapshot(categoria));
 
         var codigo = dto.CodigoCategoria.Trim().ToUpperInvariant();
 
@@ -62,6 +73,9 @@ public class CategoriaService : ICategoriaService
         categoria.EncargadoId = dto.EncargadoId;
 
         await _db.SaveChangesAsync(ct);
+
+        await _auditoria.RegistrarAsync(nameof(Categoria), categoria.CodigoCategoria, "Actualizar", anterior, _auditoria.Capturar(Snapshot(categoria)), paisId, usuario, null, ct);
+
         return new CategoriaDto(categoria.Id, categoria.CodigoCategoria, categoria.Descripcion, categoria.Activo, categoria.EncargadoId, encargadoNombre, categoria.PaisId, categoria.Pais!.Nombre);
     }
 

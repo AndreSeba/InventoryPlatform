@@ -8,6 +8,8 @@ public interface IPaisService
     // endpoint [AllowAnonymous] de este servicio, para poblar el selector del login antes
     // de tener sesión.
     Task<IReadOnlyList<PaisDto>> ListarAsync(bool incluirInactivos, CancellationToken ct);
-    Task<PaisDto> CrearAsync(CrearPaisDto dto, CancellationToken ct);
-    Task<PaisDto> ActualizarAsync(int id, ActualizarPaisDto dto, CancellationToken ct);
+    // paisId acá es el país de la SESIÓN de quien actúa (para escopear la auditoría),
+    // no un filtro de datos — Pais no tiene PaisId propio (ver comentario de ListarAsync).
+    Task<PaisDto> CrearAsync(CrearPaisDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct);
+    Task<PaisDto> ActualizarAsync(int id, ActualizarPaisDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct);
 }

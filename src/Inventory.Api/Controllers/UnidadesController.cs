@@ -27,7 +27,7 @@ public class UnidadesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<UnidadDto>> Crear([FromBody] CrearUnidadDto dto, CancellationToken ct)
     {
-        var creada = await _unidadService.CrearAsync(dto, User.ObtenerPaisId(), ct);
+        var creada = await _unidadService.CrearAsync(dto, User.ObtenerPaisId(), User.ObtenerUsuarioActuante(), ct);
         return CreatedAtAction(nameof(Listar), creada);
     }
 
@@ -36,5 +36,5 @@ public class UnidadesController : ControllerBase
     [ProducesResponseType(typeof(UnidadDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<UnidadDto>> Actualizar(int id, [FromBody] ActualizarUnidadDto dto, CancellationToken ct)
-        => Ok(await _unidadService.ActualizarAsync(id, dto, User.ObtenerPaisId(), ct));
+        => Ok(await _unidadService.ActualizarAsync(id, dto, User.ObtenerPaisId(), User.ObtenerUsuarioActuante(), ct));
 }

@@ -27,7 +27,7 @@ public class UsuariosController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<UsuarioDto>> Crear([FromBody] CrearUsuarioDto dto, CancellationToken ct)
     {
-        var creado = await _usuarioService.CrearAsync(dto, User.ObtenerPaisId(), ct);
+        var creado = await _usuarioService.CrearAsync(dto, User.ObtenerPaisId(), User.ObtenerUsuarioActuante(), ct);
         return CreatedAtAction(nameof(Listar), creado);
     }
 
@@ -36,5 +36,5 @@ public class UsuariosController : ControllerBase
     [ProducesResponseType(typeof(UsuarioDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<UsuarioDto>> Actualizar(int id, [FromBody] ActualizarUsuarioDto dto, CancellationToken ct)
-        => Ok(await _usuarioService.ActualizarAsync(id, dto, User.ObtenerPaisId(), ct));
+        => Ok(await _usuarioService.ActualizarAsync(id, dto, User.ObtenerPaisId(), User.ObtenerUsuarioActuante(), ct));
 }

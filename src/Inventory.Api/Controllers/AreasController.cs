@@ -27,7 +27,7 @@ public class AreasController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<AreaDto>> Crear([FromBody] CrearAreaDto dto, CancellationToken ct)
     {
-        var creada = await _areaService.CrearAsync(dto, User.ObtenerPaisId(), ct);
+        var creada = await _areaService.CrearAsync(dto, User.ObtenerPaisId(), User.ObtenerUsuarioActuante(), ct);
         return CreatedAtAction(nameof(Listar), creada);
     }
 
@@ -37,5 +37,5 @@ public class AreasController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<AreaDto>> Actualizar(int id, [FromBody] ActualizarAreaDto dto, CancellationToken ct)
-        => Ok(await _areaService.ActualizarAsync(id, dto, User.ObtenerPaisId(), ct));
+        => Ok(await _areaService.ActualizarAsync(id, dto, User.ObtenerPaisId(), User.ObtenerUsuarioActuante(), ct));
 }

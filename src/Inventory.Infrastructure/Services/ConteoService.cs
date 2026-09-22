@@ -11,8 +11,13 @@ namespace Inventory.Infrastructure.Services;
 public class ConteoService : IConteoService
 {
     private readonly InventoryDbContext _db;
+    private readonly IAuditoriaService _auditoria;
 
-    public ConteoService(InventoryDbContext db) => _db = db;
+    public ConteoService(InventoryDbContext db, IAuditoriaService auditoria)
+    {
+        _db = db;
+        _auditoria = auditoria;
+    }
 
     public async Task<ConteoDto> RegistrarAsync(RegistrarConteoDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
@@ -51,6 +56,10 @@ public class ConteoService : IConteoService
 
         _db.Conteos.Add(conteo);
         await _db.SaveChangesAsync(ct);
+
+        await _auditoria.RegistrarAsync(nameof(Conteo), conteo.Id.ToString(), "Registrar", null,
+            _auditoria.Capturar(new { conteo.SesionConteo, conteo.ProductoId, conteo.UbicacionId, conteo.NumeroConteo, conteo.CantidadContada }),
+            paisId, usuario, null, ct);
 
         var existenciaSistema = await _db.Movimientos
             .Where(m => m.ProductoId == producto.Id && m.UbicacionId == ubicacion.Id)

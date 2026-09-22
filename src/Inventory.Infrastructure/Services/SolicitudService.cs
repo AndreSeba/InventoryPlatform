@@ -14,13 +14,21 @@ public class SolicitudService : ISolicitudService
     private readonly InventoryDbContext _db;
     private readonly ISolicitudNotificationService _notificationService;
     private readonly ILogger<SolicitudService> _logger;
+    private readonly IAuditoriaService _auditoria;
 
-    public SolicitudService(InventoryDbContext db, ISolicitudNotificationService notificationService, ILogger<SolicitudService> logger)
+    public SolicitudService(InventoryDbContext db, ISolicitudNotificationService notificationService, ILogger<SolicitudService> logger, IAuditoriaService auditoria)
     {
         _db = db;
         _notificationService = notificationService;
         _logger = logger;
+        _auditoria = auditoria;
     }
+
+    private static object SnapshotEstado(Solicitud s) => new
+    {
+        s.Estado, s.MotivoRechazo,
+        Detalles = s.Detalles.Select(d => new { d.Id, d.CantidadAprobada, d.CantidadEntregada }).ToList(),
+    };
 
     public async Task<IReadOnlyList<SolicitudDto>> ListarAsync(int paisId, string? estado, CancellationToken ct)
     {
@@ -117,6 +125,10 @@ public class SolicitudService : ISolicitudService
         foreach (var d in solicitud.Detalles)
             await _db.Entry(d).Reference(x => x.Producto).LoadAsync(ct);
 
+        var snapshot = new { solicitud.NumeroSolicitud, solicitud.AreaId, solicitud.Tipo, solicitud.Estado,
+            Detalles = solicitud.Detalles.Select(d => new { d.ProductoId, d.CantidadSolicitada, d.Retorna }).ToList() };
+        await _auditoria.RegistrarAsync(nameof(Solicitud), solicitud.NumeroSolicitud, "Crear", null, _auditoria.Capturar(snapshot), paisId, usuario, null, ct);
+
         var solicitudDto = ASolicitudDto(solicitud);
         await AvisarEncargadosAsync(solicitud, solicitudDto, ct);
 
@@ -167,6 +179,8 @@ public class SolicitudService : ISolicitudService
         if (solicitud.Estado != EstadoSolicitud.Pendiente)
             throw new SolicitudEstadoInvalidoException($"Solo se puede aprobar una solicitud en estado Pendiente (actual: {solicitud.Estado}).");
 
+        var anterior = _auditoria.Capturar(SnapshotEstado(solicitud));
+
         foreach (var linea in dto.Detalles)
         {
             var detalle = solicitud.Detalles.FirstOrDefault(d => d.Id == linea.SolicitudDetalleId)
@@ -185,6 +199,8 @@ public class SolicitudService : ISolicitudService
         solicitud.FechaResolucion = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(ct);
+        await _auditoria.RegistrarAsync(nameof(Solicitud), solicitud.NumeroSolicitud, "Aprobar", anterior, _auditoria.Capturar(SnapshotEstado(solicitud)), paisId, usuario, null, ct);
+
         return ASolicitudDto(solicitud);
     }
 
@@ -200,6 +216,8 @@ public class SolicitudService : ISolicitudService
         if (solicitud.Estado != EstadoSolicitud.Pendiente)
             throw new SolicitudEstadoInvalidoException($"Solo se puede rechazar una solicitud en estado Pendiente (actual: {solicitud.Estado}).");
 
+        var anterior = _auditoria.Capturar(SnapshotEstado(solicitud));
+
         solicitud.Estado = EstadoSolicitud.Rechazada;
         solicitud.MotivoRechazo = dto.MotivoRechazo;
         solicitud.AprobadoPorId = usuario.Id;
@@ -207,6 +225,8 @@ public class SolicitudService : ISolicitudService
         solicitud.FechaResolucion = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(ct);
+        await _auditoria.RegistrarAsync(nameof(Solicitud), solicitud.NumeroSolicitud, "Rechazar", anterior, _auditoria.Capturar(SnapshotEstado(solicitud)), paisId, usuario, dto.MotivoRechazo, ct);
+
         return ASolicitudDto(solicitud);
     }
 

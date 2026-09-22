@@ -1,3 +1,4 @@
+using Inventory.Api.Security;
 using Inventory.Application.Dtos;
 using Inventory.Application.Interfaces;
 using Inventory.Domain.Security;
@@ -29,7 +30,7 @@ public class PaisesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<PaisDto>> Crear([FromBody] CrearPaisDto dto, CancellationToken ct)
     {
-        var creado = await _paisService.CrearAsync(dto, ct);
+        var creado = await _paisService.CrearAsync(dto, User.ObtenerPaisId(), User.ObtenerUsuarioActuante(), ct);
         return CreatedAtAction(nameof(Listar), creado);
     }
 
@@ -38,5 +39,5 @@ public class PaisesController : ControllerBase
     [ProducesResponseType(typeof(PaisDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<PaisDto>> Actualizar(int id, [FromBody] ActualizarPaisDto dto, CancellationToken ct)
-        => Ok(await _paisService.ActualizarAsync(id, dto, ct));
+        => Ok(await _paisService.ActualizarAsync(id, dto, User.ObtenerPaisId(), User.ObtenerUsuarioActuante(), ct));
 }

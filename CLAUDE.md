@@ -98,11 +98,11 @@ Conteo               → SesionConteo, ProductoId, UbicacionId, NumeroConteo
                        # único por (SesionConteo, ProductoId, UbicacionId,
                        # NumeroConteo)
 Auditoria            → log genérico (UsuarioId (FK a Usuario) + UsuarioNombre,
-                       Entidad, EntidadId, Accion,
-                       ValorAnterior, ValorNuevo, Motivo, CorrelationId) —
-                       hoy solo lo escribe ProductoService (crear/actualizar/
-                       desactivar). No está conectado a Movimiento/Solicitud
-                       todavía.
+                       PaisId (FK a Pais, país de la SESIÓN del actor — ver
+                       "Auditoría completa" más abajo), Entidad, EntidadId,
+                       Accion, ValorAnterior, ValorNuevo, Motivo, CorrelationId)
+                       — escrito por TODOS los servicios que mutan datos, vía
+                       IAuditoriaService (ver sección "Auditoría completa").
 ```
 
 ### Reglas de negocio críticas (todas con CHECK constraint de respaldo en la BD, vía `HasCheckConstraint` en las Configurations — no solo validadas en C#)
@@ -261,6 +261,89 @@ mapeo de `ClaimTypes.Name` y `ClaimTypes.Role`, y rompe en silencio `User.Identi
 
 Si el claim falta o no parsea, la extensión **lanza excepción** en vez de caer a un
 usuario inventado — el fallback `"sistema"` era parte del problema.
+
+### Auditoría completa, estilo SAP (agregado 2026-09-22, pedido explícito del usuario)
+
+> El usuario pidió "mejorá la tabla de auditoría para que funcione al 100%, quiero
+> algo parecido a lo que hace SAP" — eligió expresamente el alcance máximo (todo lo
+> que modifica datos, no solo lo crítico) y el detalle campo por campo (no
+> antes/después en crudo).
+
+Antes de esto, `Auditoria` solo la escribía `ProductoService` (crear/actualizar/
+desactivar), a mano, con `_db.Auditorias.Add(...)` inline y sin país. Ahora:
+
+- **`IAuditoriaService`/`AuditoriaService`** (`Inventory.Application/Interfaces`,
+  `Inventory.Infrastructure/Services`) es el punto único de escritura/lectura — ningún
+  servicio toca `_db.Auditorias` directo. Dos métodos de escritura:
+  - `Capturar(object snapshot)` — serializa a JSON un objeto anónimo con los campos de
+    negocio relevantes de la entidad (armado a mano en cada servicio, **nunca la
+    entidad de EF completa ni un DTO con binarios** — evita volcar navegaciones o,
+    peor, bytes de imagen en base64 dentro de la auditoría).
+  - `RegistrarAsync(entidad, entidadId, accion, valorAnteriorJson, valorNuevoJson,
+    paisId, usuario, motivo, ct)` — hace su propio `SaveChangesAsync`, así el registro
+    queda escrito pase lo que pase después en el método que llama.
+- **Diff campo por campo, no antes/después en crudo**: cada servicio llama `Capturar`
+  con la **misma forma de objeto** antes y después de mutar (mismos nombres de
+  campo), para que el frontend pueda comparar clave por clave. En un alta
+  (`ValorAnterior = null`) todos los campos de `ValorNuevo` se muestran como "creado".
+- **`PaisId` en `Auditoria`**: no es una propiedad natural de la entidad auditada —
+  es el país de la SESIÓN de quien actuó (`User.ObtenerPaisId()` en el controller),
+  mismo criterio que cualquier otro servicio país-scoped. Así el listado se filtra
+  igual que todo el resto del sistema, sin que un admin de un país vea la auditoría
+  de otro. `PaisService.CrearAsync`/`ActualizarAsync` reciben este `paisId` **solo**
+  para esto — `Pais` en sí no tiene `PaisId` propio (es la dimensión).
+- **Quién escribe qué, por servicio**:
+  - `ProductoService`: Crear/Actualizar/Desactivar (refactorizado de su código previo
+    inline — antes auditaba el DTO entrante, ahora audita un snapshot simétrico de la
+    entidad; nunca los bytes de `ImagenData`, solo `TieneImagen`).
+  - `MovimientoService`: `RegistrarEntrada`/`RegistrarSalida`/`RegistrarAjustePositivo`/
+    `RegistrarAjusteNegativo`/`RegistrarDevolucion` — solo "alta" (un Movimiento nunca
+    se edita ni se borra, ver arriba), `ValorAnterior` siempre null.
+  - `SolicitudService`: Crear/Aprobar/Rechazar (el estado + `CantidadAprobada` por
+    línea, antes/después).
+  - `ConteoService`: Registrar (cubre también `ImportarHojaConteoAsync`, que llama a
+    `RegistrarAsync` en loop — una fila de auditoría por conteo importado, no una
+    por archivo).
+  - `UsuarioService`: Crear/Actualizar — **nunca `PasswordHash`** en el snapshot.
+  - `RolService`: Crear/Actualizar — el snapshot guarda `PermisoId` (no el código),
+    para no depender de que `RolPermiso.Permiso` esté incluido en la query.
+  - `CategoriaService`/`AreaService`/`UnidadService`/`AlmacenService`: Crear/Actualizar.
+  - `UbicacionService`: solo Crear (no tiene Actualizar, ver D6).
+  - `PaisService`: Crear/Actualizar.
+- **`CrearAsync`/`ActualizarAsync` de Categoría/Área/Ubicación/Unidad/Almacén/Usuario/
+  Rol/País ahora reciben `UsuarioActuante usuario`** (antes no lo recibían — no hacía
+  falta hasta que tuvieron que auditar quién actuó). Cambio en cascada: interfaz +
+  implementación + Controller (`User.ObtenerUsuarioActuante()`) en los 8 servicios.
+  **`UsuarioService`**: ojo, la entidad `Usuario` que se crea/edita ya se llamaba
+  `usuario` en el código — se renombró a `nuevoUsuario`/`entidad` para no chocar con
+  el parámetro `UsuarioActuante usuario` nuevo.
+- **Endpoint**: `GET /api/auditoria` (filtros `Entidad`/`Accion`/`UsuarioId`/`Desde`/
+  `Hasta` por query string, sin paginado server-side — mismo criterio que Movimientos/
+  Solicitudes: devuelve la lista filtrada completa, el frontend pagina con
+  `<Pager/>`) + `GET /api/auditoria/catalogo` (entidades/acciones REALMENTE presentes
+  en la tabla para ese país, alimenta los `<select>` de filtro del frontend sin
+  hardcodear una lista que se desactualizaría cada vez que se audite un módulo nuevo).
+  Ambos con `[Authorize(Policy = Permisos.AuditoriaVer)]` — permiso nuevo, agregado al
+  final del catálogo por el motivo de siempre (ver comentario en `Permisos.cs`).
+- **Migración** `AgregarAuditoriaCompleta`: agrega `PaisId` a `Auditoria` (con el
+  cuidado de siempre — `defaultValue: 1`, no el `0` que genera EF por default, para
+  no dejar las filas históricas de Producto con un país inválido) + el permiso nuevo
+  + su `RolPermiso` para Administrador Bolivia y Perú (se generó solo: `Permisos.Catalogo`
+  es la fuente de `PermisoConfiguration`/`RolPermisoConfiguration`, así que agregar un
+  permiso al final del catálogo y correr `migrations add` ya arma el `InsertData`
+  correcto sin tocar nada más — confirmado con este mismo cambio).
+- **Frontend**: `/auditoria` (`Components/Pages/Auditoria/Index.razor`), rail link en
+  "Administración" gateado por `Permisos.AuditoriaVer`. El diff campo por campo se
+  arma en el cliente: parsea `ValorAnterior`/`ValorNuevo` con `JsonDocument`, compara
+  clave por clave, y solo muestra las que cambiaron (fila expandible "Ver cambios" por
+  registro, no una columna más en la tabla principal — con `~10` campos por entidad
+  no entraría).
+
+**Importante para el próximo servicio que mute datos**: seguir el mismo patrón —
+inyectar `IAuditoriaService`, escribir un `Snapshot(Entidad e) => new { ... }` privado
+con los campos de negocio (nunca navegaciones, nunca binarios/hashes), llamarlo
+antes y después de mutar, y `RegistrarAsync` después del `SaveChangesAsync` que
+persiste el cambio real.
 
 ### Más tipos de Ubicación además de Rack/Mueble (consultado 2026-09-14, no implementado)
 
@@ -470,3 +553,6 @@ reconoce.
 - ❌ No commitees `Jwt:SecretKey` real ni cambies la contraseña admin de dev en el
   `appsettings.json` — son valores de desarrollo a propósito, documentados como "cambiar
   antes de un despliegue real", no secretos de producción.
+- ❌ No escribas `_db.Auditorias.Add(...)` a mano en un servicio nuevo — inyectá
+  `IAuditoriaService` y usá `Capturar`/`RegistrarAsync` (ver "Auditoría completa").
+  Y no audites `PasswordHash` ni bytes de imagen/archivo — solo campos de negocio.

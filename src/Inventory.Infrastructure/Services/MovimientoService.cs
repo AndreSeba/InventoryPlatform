@@ -12,8 +12,22 @@ namespace Inventory.Infrastructure.Services;
 public class MovimientoService : IMovimientoService
 {
     private readonly InventoryDbContext _db;
+    private readonly IAuditoriaService _auditoria;
 
-    public MovimientoService(InventoryDbContext db) => _db = db;
+    public MovimientoService(InventoryDbContext db, IAuditoriaService auditoria)
+    {
+        _db = db;
+        _auditoria = auditoria;
+    }
+
+    // Un Movimiento nunca se edita ni se borra (ver CLAUDE.md) — solo hace falta el
+    // snapshot de "nuevo" en el momento de crearlo, nunca un "anterior".
+    private static object Snapshot(Movimiento m) => new
+    {
+        m.NumeroMovimiento, m.ProductoId, m.TipoMovimiento, m.Cantidad, m.UbicacionId,
+        m.Retorna, m.UbicacionExterna, m.FechaRetornoEsperada, m.FechaVencimiento,
+        m.MovimientoOrigenId, m.SolicitudDetalleId, m.Motivo,
+    };
 
     public Task<MovimientoResultadoDto> RegistrarEntradaAsync(RegistrarEntradaDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct) =>
         EjecutarAsync(async (producto, ubicacion, tx) =>
@@ -28,6 +42,8 @@ public class MovimientoService : IMovimientoService
 
             if (detalle is not null)
                 await AcumularEntregaAsync(detalle, dto.Cantidad, ct);
+
+            await _auditoria.RegistrarAsync(nameof(Movimiento), movimiento.NumeroMovimiento, "RegistrarEntrada", null, _auditoria.Capturar(Snapshot(movimiento)), paisId, usuario, null, ct);
 
             return movimiento;
         }, dto.ProductoId, dto.UbicacionId, paisId, ct);
@@ -55,6 +71,8 @@ public class MovimientoService : IMovimientoService
             if (detalle is not null)
                 await AcumularEntregaAsync(detalle, dto.Cantidad, ct);
 
+            await _auditoria.RegistrarAsync(nameof(Movimiento), movimiento.NumeroMovimiento, "RegistrarSalida", null, _auditoria.Capturar(Snapshot(movimiento)), paisId, usuario, null, ct);
+
             return movimiento;
         }, dto.ProductoId, dto.UbicacionId, paisId, ct);
 
@@ -76,6 +94,9 @@ public class MovimientoService : IMovimientoService
 
             var movimiento = NuevoMovimiento(producto.Id, tipo, dto.Cantidad, efectiva, ubicacion.Id, usuario, dto.Motivo);
             await GuardarConNumeroAsync(movimiento, "MOV", ct);
+
+            await _auditoria.RegistrarAsync(nameof(Movimiento), movimiento.NumeroMovimiento, dto.EsPositivo ? "RegistrarAjustePositivo" : "RegistrarAjusteNegativo", null, _auditoria.Capturar(Snapshot(movimiento)), paisId, usuario, dto.Motivo, ct);
+
             return movimiento;
         }, dto.ProductoId, dto.UbicacionId, paisId, ct);
 
@@ -116,6 +137,7 @@ public class MovimientoService : IMovimientoService
         movimiento.MovimientoOrigenId = origen.Id;
 
         await GuardarConNumeroAsync(movimiento, "MOV", ct);
+        await _auditoria.RegistrarAsync(nameof(Movimiento), movimiento.NumeroMovimiento, "RegistrarDevolucion", null, _auditoria.Capturar(Snapshot(movimiento)), paisId, usuario, null, ct);
         await tx.CommitAsync(ct);
 
         var existenciaResultante = await CalcularExistenciaTotalAsync(origen.ProductoId, ct);
@@ -136,6 +158,7 @@ public class MovimientoService : IMovimientoService
     {
         var query = _db.Movimientos.AsNoTracking().Include(m => m.Producto)
             .Include(m => m.Ubicacion).ThenInclude(u => u!.Almacen)
+            .Include(m => m.SolicitudDetalle).ThenInclude(sd => sd!.Solicitud)
             .Where(m => m.Producto!.PaisId == paisId);
 
         if (desde is not null) query = query.Where(m => m.FechaMovimiento >= desde.Value);
@@ -394,6 +417,7 @@ public class MovimientoService : IMovimientoService
         m.UbicacionId, m.Ubicacion?.CodigoUbicacion ?? string.Empty,
         m.Ubicacion?.Almacen?.Id ?? 0, m.Ubicacion?.Almacen?.Nombre ?? string.Empty,
         m.Retorna, m.UbicacionExterna, m.FechaRetornoEsperada, m.FechaVencimiento,
-        m.MovimientoOrigenId, m.SolicitudDetalleId, m.RegistradoPorId, m.RegistradoPorNombre, m.Motivo, m.FechaMovimiento
+        m.MovimientoOrigenId, m.SolicitudDetalleId, m.SolicitudDetalle?.SolicitudId, m.SolicitudDetalle?.Solicitud?.NumeroSolicitud,
+        m.RegistradoPorId, m.RegistradoPorNombre, m.Motivo, m.FechaMovimiento
     );
 }

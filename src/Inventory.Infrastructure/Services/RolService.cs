@@ -11,8 +11,22 @@ namespace Inventory.Infrastructure.Services;
 public class RolService : IRolService
 {
     private readonly InventoryDbContext _db;
+    private readonly IAuditoriaService _auditoria;
 
-    public RolService(InventoryDbContext db) => _db = db;
+    public RolService(InventoryDbContext db, IAuditoriaService auditoria)
+    {
+        _db = db;
+        _auditoria = auditoria;
+    }
+
+    // PermisoIds (no códigos): ActualizarAsync no siempre trae Permiso incluido en el
+    // RolPermiso "anterior" — el Id alcanza para diffear qué cambió, y evita un Include
+    // extra solo para la auditoría.
+    private static object Snapshot(Rol r) => new
+    {
+        r.Nombre, r.Descripcion, r.Activo,
+        Permisos = r.RolPermisos.Select(rp => rp.PermisoId).OrderBy(id => id).ToList(),
+    };
 
     public async Task<IReadOnlyList<RolDto>> ListarAsync(int paisId, CancellationToken ct)
     {
@@ -26,7 +40,7 @@ public class RolService : IRolService
         return roles.Select(ARolDto).ToList();
     }
 
-    public async Task<RolDto> CrearAsync(CrearRolDto dto, int paisId, CancellationToken ct)
+    public async Task<RolDto> CrearAsync(CrearRolDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
         var nombre = dto.Nombre.Trim();
 
@@ -43,15 +57,19 @@ public class RolService : IRolService
         _db.Roles.Add(rol);
         await _db.SaveChangesAsync(ct);
 
+        await _auditoria.RegistrarAsync(nameof(Rol), rol.Id.ToString(), "Crear", null, _auditoria.Capturar(Snapshot(rol)), paisId, usuario, null, ct);
+
         rol.Pais = pais;
         return ARolDto(rol);
     }
 
-    public async Task<RolDto> ActualizarAsync(int id, ActualizarRolDto dto, int paisId, CancellationToken ct)
+    public async Task<RolDto> ActualizarAsync(int id, ActualizarRolDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
         var rol = await _db.Roles.Include(r => r.RolPermisos).Include(r => r.Pais)
             .FirstOrDefaultAsync(r => r.Id == id && r.PaisId == paisId, ct)
             ?? throw new RolNoEncontradoException(id);
+
+        var anterior = _auditoria.Capturar(Snapshot(rol));
 
         var permisos = await ResolverPermisosAsync(dto.PermisoCodigos, ct);
 
@@ -63,6 +81,8 @@ public class RolService : IRolService
         rol.RolPermisos = permisos.Select(p => new RolPermiso { RolId = rol.Id, PermisoId = p.Id }).ToList();
 
         await _db.SaveChangesAsync(ct);
+
+        await _auditoria.RegistrarAsync(nameof(Rol), rol.Id.ToString(), "Actualizar", anterior, _auditoria.Capturar(Snapshot(rol)), paisId, usuario, null, ct);
 
         rol.RolPermisos = rol.RolPermisos.Select(rp => { rp.Permiso = permisos.First(p => p.Id == rp.PermisoId); return rp; }).ToList();
         return ARolDto(rol);

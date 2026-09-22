@@ -12,8 +12,15 @@ namespace Inventory.Infrastructure.Services;
 public class PaisService : IPaisService
 {
     private readonly InventoryDbContext _db;
+    private readonly IAuditoriaService _auditoria;
 
-    public PaisService(InventoryDbContext db) => _db = db;
+    public PaisService(InventoryDbContext db, IAuditoriaService auditoria)
+    {
+        _db = db;
+        _auditoria = auditoria;
+    }
+
+    private static object Snapshot(Pais p) => new { p.Nombre, p.CodigoIso, p.Activo };
 
     public async Task<IReadOnlyList<PaisDto>> ListarAsync(bool incluirInactivos, CancellationToken ct)
     {
@@ -25,7 +32,7 @@ public class PaisService : IPaisService
             .ToListAsync(ct);
     }
 
-    public async Task<PaisDto> CrearAsync(CrearPaisDto dto, CancellationToken ct)
+    public async Task<PaisDto> CrearAsync(CrearPaisDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
         var codigoIso = dto.CodigoIso.Trim().ToUpperInvariant();
 
@@ -38,6 +45,8 @@ public class PaisService : IPaisService
         await _db.SaveChangesAsync(ct); // necesita pais.Id antes de sembrar roles/usuario
 
         await SembrarRolesYAdminInicialAsync(pais, ct);
+
+        await _auditoria.RegistrarAsync(nameof(Pais), pais.CodigoIso, "Crear", null, _auditoria.Capturar(Snapshot(pais)), paisId, usuario, null, ct);
 
         return new PaisDto(pais.Id, pais.Nombre, pais.CodigoIso, pais.Activo);
     }
@@ -77,15 +86,20 @@ public class PaisService : IPaisService
         await _db.SaveChangesAsync(ct);
     }
 
-    public async Task<PaisDto> ActualizarAsync(int id, ActualizarPaisDto dto, CancellationToken ct)
+    public async Task<PaisDto> ActualizarAsync(int id, ActualizarPaisDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
         var pais = await _db.Paises.FirstOrDefaultAsync(p => p.Id == id, ct)
             ?? throw new PaisNoEncontradoException(id);
+
+        var anterior = _auditoria.Capturar(Snapshot(pais));
 
         pais.Nombre = dto.Nombre;
         pais.Activo = dto.Activo;
 
         await _db.SaveChangesAsync(ct);
+
+        await _auditoria.RegistrarAsync(nameof(Pais), pais.CodigoIso, "Actualizar", anterior, _auditoria.Capturar(Snapshot(pais)), paisId, usuario, null, ct);
+
         return new PaisDto(pais.Id, pais.Nombre, pais.CodigoIso, pais.Activo);
     }
 }

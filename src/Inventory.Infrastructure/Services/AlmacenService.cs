@@ -11,8 +11,18 @@ namespace Inventory.Infrastructure.Services;
 public class AlmacenService : IAlmacenService
 {
     private readonly InventoryDbContext _db;
+    private readonly IAuditoriaService _auditoria;
 
-    public AlmacenService(InventoryDbContext db) => _db = db;
+    public AlmacenService(InventoryDbContext db, IAuditoriaService auditoria)
+    {
+        _db = db;
+        _auditoria = auditoria;
+    }
+
+    private static object Snapshot(Almacen a) => new
+    {
+        a.CodigoAlmacen, a.Nombre, a.TipoAlmacen, a.ProveedorNombre, a.ProveedorContacto, a.ProveedorDireccion, a.Activo,
+    };
 
     public async Task<IReadOnlyList<AlmacenDto>> ListarAsync(int paisId, bool incluirInactivos, CancellationToken ct)
     {
@@ -22,7 +32,7 @@ public class AlmacenService : IAlmacenService
         return await query.OrderBy(a => a.Nombre).Select(a => AAlmacenDto(a)).ToListAsync(ct);
     }
 
-    public async Task<AlmacenDto> CrearAsync(CrearAlmacenDto dto, int paisId, CancellationToken ct)
+    public async Task<AlmacenDto> CrearAsync(CrearAlmacenDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
         ValidarProveedor(dto.TipoAlmacen, dto.ProveedorNombre);
 
@@ -47,15 +57,19 @@ public class AlmacenService : IAlmacenService
         _db.Almacenes.Add(almacen);
         await _db.SaveChangesAsync(ct);
 
+        await _auditoria.RegistrarAsync(nameof(Almacen), almacen.CodigoAlmacen, "Crear", null, _auditoria.Capturar(Snapshot(almacen)), paisId, usuario, null, ct);
+
         await _db.Entry(almacen).Reference(a => a.Pais).LoadAsync(ct);
         return AAlmacenDto(almacen);
     }
 
-    public async Task<AlmacenDto> ActualizarAsync(int id, ActualizarAlmacenDto dto, int paisId, CancellationToken ct)
+    public async Task<AlmacenDto> ActualizarAsync(int id, ActualizarAlmacenDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
         var almacen = await _db.Almacenes.Include(a => a.Pais)
             .FirstOrDefaultAsync(a => a.Id == id && a.PaisId == paisId, ct)
             ?? throw new AlmacenNoEncontradoException(id);
+
+        var anterior = _auditoria.Capturar(Snapshot(almacen));
 
         ValidarProveedor(dto.TipoAlmacen, dto.ProveedorNombre);
 
@@ -74,6 +88,9 @@ public class AlmacenService : IAlmacenService
         almacen.Activo = dto.Activo;
 
         await _db.SaveChangesAsync(ct);
+
+        await _auditoria.RegistrarAsync(nameof(Almacen), almacen.CodigoAlmacen, "Actualizar", anterior, _auditoria.Capturar(Snapshot(almacen)), paisId, usuario, null, ct);
+
         return AAlmacenDto(almacen);
     }
 

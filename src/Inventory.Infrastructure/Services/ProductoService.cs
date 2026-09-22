@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Inventory.Application.Dtos;
 using Inventory.Application.Exceptions;
 using Inventory.Application.Interfaces;
@@ -12,8 +11,22 @@ namespace Inventory.Infrastructure.Services;
 public class ProductoService : IProductoService
 {
     private readonly InventoryDbContext _db;
+    private readonly IAuditoriaService _auditoria;
 
-    public ProductoService(InventoryDbContext db) => _db = db;
+    public ProductoService(InventoryDbContext db, IAuditoriaService auditoria)
+    {
+        _db = db;
+        _auditoria = auditoria;
+    }
+
+    // Misma forma de objeto para "antes" y "después" — así el frontend puede diffear
+    // campo por campo. Nunca los bytes de la imagen (ImagenData): infla la auditoría con
+    // base64 sin aportar nada legible, alcanza con saber si tenía una.
+    private static object Snapshot(Producto p) => new
+    {
+        p.ClaveProducto, p.CodigoProducto, p.Nombre, p.CategoriaId, p.UnidadMedida,
+        p.CostoUnitario, p.StockMinimo, p.Detalle, TieneImagen = p.ImagenData is not null, p.Activo,
+    };
 
     public async Task<IReadOnlyList<ProductoDto>> ListarAsync(int paisId, int? categoriaId, bool incluirInactivos, CancellationToken ct)
     {
@@ -86,18 +99,10 @@ public class ProductoService : IProductoService
         };
 
         _db.Productos.Add(producto);
-
-        _db.Auditorias.Add(new Auditoria
-        {
-            UsuarioId = usuario.Id,
-            UsuarioNombre = usuario.Nombre,
-            Entidad = nameof(Producto),
-            EntidadId = clave,
-            Accion = "Crear",
-            ValorNuevo = JsonSerializer.Serialize(dto),
-        });
-
         await _db.SaveChangesAsync(ct);
+
+        await _auditoria.RegistrarAsync(nameof(Producto), clave, "Crear", null, _auditoria.Capturar(Snapshot(producto)), paisId, usuario, null, ct);
+
         return AProductoDto(producto, categoria, pais, 0, null); // recién creado, sin entradas todavía
     }
 
@@ -126,16 +131,7 @@ public class ProductoService : IProductoService
             : await _db.Categorias.FirstOrDefaultAsync(c => c.Id == dto.CategoriaId && c.PaisId == paisId && c.Activo, ct)
                 ?? throw new CategoriaNoEncontradaException(dto.CategoriaId);
 
-        var valorAnterior = JsonSerializer.Serialize(new
-        {
-            producto.Nombre,
-            producto.CategoriaId,
-            producto.UnidadMedida,
-            producto.CostoUnitario,
-            producto.StockMinimo,
-            producto.Detalle,
-            TeniaImagen = producto.ImagenData is not null,
-        });
+        var valorAnterior = _auditoria.Capturar(Snapshot(producto));
 
         var unidadNueva = await ResolverUnidadAsync(dto.UnidadMedida, paisId, ct);
         if (unidadNueva != producto.UnidadMedida)
@@ -169,18 +165,9 @@ public class ProductoService : IProductoService
             producto.ImagenContentType = dto.ImagenContentType;
         }
 
-        _db.Auditorias.Add(new Auditoria
-        {
-            UsuarioId = usuario.Id,
-            UsuarioNombre = usuario.Nombre,
-            Entidad = nameof(Producto),
-            EntidadId = producto.ClaveProducto,
-            Accion = "Actualizar",
-            ValorAnterior = valorAnterior,
-            ValorNuevo = JsonSerializer.Serialize(dto),
-        });
-
         await _db.SaveChangesAsync(ct);
+
+        await _auditoria.RegistrarAsync(nameof(Producto), producto.ClaveProducto, "Actualizar", valorAnterior, _auditoria.Capturar(Snapshot(producto)), paisId, usuario, null, ct);
 
         var existencia = await CalcularExistenciaAsync(id, ct);
         var proximoVencimiento = await CalcularProximoVencimientoAsync(id, ct);
@@ -192,18 +179,12 @@ public class ProductoService : IProductoService
         var producto = await _db.Productos.FirstOrDefaultAsync(p => p.Id == id && p.PaisId == paisId, ct)
             ?? throw new ProductoNoEncontradoException(id);
 
+        var anterior = _auditoria.Capturar(Snapshot(producto));
         producto.Activo = false;
 
-        _db.Auditorias.Add(new Auditoria
-        {
-            UsuarioId = usuario.Id,
-            UsuarioNombre = usuario.Nombre,
-            Entidad = nameof(Producto),
-            EntidadId = producto.ClaveProducto,
-            Accion = "Desactivar",
-        });
-
         await _db.SaveChangesAsync(ct);
+
+        await _auditoria.RegistrarAsync(nameof(Producto), producto.ClaveProducto, "Desactivar", anterior, _auditoria.Capturar(Snapshot(producto)), paisId, usuario, null, ct);
     }
 
     public async Task<(byte[] Datos, string ContentType)> ObtenerImagenAsync(int id, CancellationToken ct)

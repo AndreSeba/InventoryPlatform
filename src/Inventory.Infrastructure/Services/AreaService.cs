@@ -10,8 +10,15 @@ namespace Inventory.Infrastructure.Services;
 public class AreaService : IAreaService
 {
     private readonly InventoryDbContext _db;
+    private readonly IAuditoriaService _auditoria;
 
-    public AreaService(InventoryDbContext db) => _db = db;
+    public AreaService(InventoryDbContext db, IAuditoriaService auditoria)
+    {
+        _db = db;
+        _auditoria = auditoria;
+    }
+
+    private static object Snapshot(Area a) => new { a.CodigoArea, a.NombreArea, a.Activo };
 
     public async Task<IReadOnlyList<AreaDto>> ListarAsync(int paisId, bool incluirInactivas, CancellationToken ct)
     {
@@ -21,7 +28,7 @@ public class AreaService : IAreaService
         return await query.OrderBy(a => a.NombreArea).Select(a => AAreaDto(a)).ToListAsync(ct);
     }
 
-    public async Task<AreaDto> CrearAsync(CrearAreaDto dto, int paisId, CancellationToken ct)
+    public async Task<AreaDto> CrearAsync(CrearAreaDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
         var codigo = dto.CodigoArea.Trim().ToUpperInvariant();
 
@@ -34,14 +41,18 @@ public class AreaService : IAreaService
         _db.Areas.Add(area);
         await _db.SaveChangesAsync(ct);
 
+        await _auditoria.RegistrarAsync(nameof(Area), area.CodigoArea, "Crear", null, _auditoria.Capturar(Snapshot(area)), paisId, usuario, null, ct);
+
         await _db.Entry(area).Reference(a => a.Pais).LoadAsync(ct);
         return AAreaDto(area);
     }
 
-    public async Task<AreaDto> ActualizarAsync(int id, ActualizarAreaDto dto, int paisId, CancellationToken ct)
+    public async Task<AreaDto> ActualizarAsync(int id, ActualizarAreaDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
         var area = await _db.Areas.Include(a => a.Pais).FirstOrDefaultAsync(a => a.Id == id && a.PaisId == paisId, ct)
             ?? throw new AreaNoEncontradaException(id);
+
+        var anterior = _auditoria.Capturar(Snapshot(area));
 
         var codigo = dto.CodigoArea.Trim().ToUpperInvariant();
 
@@ -54,6 +65,9 @@ public class AreaService : IAreaService
         area.Activo = dto.Activo;
 
         await _db.SaveChangesAsync(ct);
+
+        await _auditoria.RegistrarAsync(nameof(Area), area.CodigoArea, "Actualizar", anterior, _auditoria.Capturar(Snapshot(area)), paisId, usuario, null, ct);
+
         return AAreaDto(area);
     }
 

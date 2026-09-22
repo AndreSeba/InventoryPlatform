@@ -11,8 +11,13 @@ namespace Inventory.Infrastructure.Services;
 public class UbicacionService : IUbicacionService
 {
     private readonly InventoryDbContext _db;
+    private readonly IAuditoriaService _auditoria;
 
-    public UbicacionService(InventoryDbContext db) => _db = db;
+    public UbicacionService(InventoryDbContext db, IAuditoriaService auditoria)
+    {
+        _db = db;
+        _auditoria = auditoria;
+    }
 
     public async Task<IReadOnlyList<UbicacionDto>> ListarAsync(int paisId, bool incluirInactivas, CancellationToken ct)
     {
@@ -23,7 +28,7 @@ public class UbicacionService : IUbicacionService
         return await query.OrderBy(u => u.CodigoUbicacion).Select(u => AUbicacionDto(u)).ToListAsync(ct);
     }
 
-    public async Task<UbicacionDto> CrearAsync(CrearUbicacionDto dto, int paisId, CancellationToken ct)
+    public async Task<UbicacionDto> CrearAsync(CrearUbicacionDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
         var almacen = await _db.Almacenes.Include(a => a.Pais)
             .FirstOrDefaultAsync(a => a.Id == dto.AlmacenId && a.PaisId == paisId && a.Activo, ct)
@@ -64,6 +69,10 @@ public class UbicacionService : IUbicacionService
 
         _db.Ubicaciones.Add(ubicacion);
         await _db.SaveChangesAsync(ct);
+
+        await _auditoria.RegistrarAsync(nameof(Ubicacion), ubicacion.CodigoUbicacion, "Crear", null,
+            _auditoria.Capturar(new { ubicacion.CodigoUbicacion, ubicacion.TipoUbicacion, ubicacion.Nro, ubicacion.Lado, ubicacion.Nivel, ubicacion.AlmacenId, ubicacion.Activo }),
+            paisId, usuario, null, ct);
 
         return new UbicacionDto(
             ubicacion.Id, ubicacion.TipoUbicacion, ubicacion.Nro, ubicacion.Lado, ubicacion.Nivel,

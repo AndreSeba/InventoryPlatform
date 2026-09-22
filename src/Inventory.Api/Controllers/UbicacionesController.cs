@@ -28,7 +28,7 @@ public class UbicacionesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<UbicacionDto>> Crear([FromBody] CrearUbicacionDto dto, CancellationToken ct)
     {
-        var creada = await _ubicacionService.CrearAsync(dto, User.ObtenerPaisId(), ct);
+        var creada = await _ubicacionService.CrearAsync(dto, User.ObtenerPaisId(), User.ObtenerUsuarioActuante(), ct);
         return CreatedAtAction(nameof(Listar), creada);
     }
 }

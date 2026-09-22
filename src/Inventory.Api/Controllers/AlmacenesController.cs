@@ -28,7 +28,7 @@ public class AlmacenesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<AlmacenDto>> Crear([FromBody] CrearAlmacenDto dto, CancellationToken ct)
     {
-        var creado = await _almacenService.CrearAsync(dto, User.ObtenerPaisId(), ct);
+        var creado = await _almacenService.CrearAsync(dto, User.ObtenerPaisId(), User.ObtenerUsuarioActuante(), ct);
         return CreatedAtAction(nameof(Listar), creado);
     }
 
@@ -39,5 +39,5 @@ public class AlmacenesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<AlmacenDto>> Actualizar(int id, [FromBody] ActualizarAlmacenDto dto, CancellationToken ct)
-        => Ok(await _almacenService.ActualizarAsync(id, dto, User.ObtenerPaisId(), ct));
+        => Ok(await _almacenService.ActualizarAsync(id, dto, User.ObtenerPaisId(), User.ObtenerUsuarioActuante(), ct));
 }

@@ -22,7 +22,15 @@ public class AuditoriaConfiguration : IEntityTypeConfiguration<Auditoria>
             .HasForeignKey(a => a.UsuarioId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        builder.HasOne(a => a.Pais)
+            .WithMany()
+            .HasForeignKey(a => a.PaisId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.HasIndex(a => new { a.Entidad, a.EntidadId });
         builder.HasIndex(a => a.UsuarioId);
+        // El listado siempre filtra por país y ordena por fecha descendente — mismo
+        // criterio que un índice compuesto sostiene en el resto del proyecto.
+        builder.HasIndex(a => new { a.PaisId, a.FechaHora });
     }
 }

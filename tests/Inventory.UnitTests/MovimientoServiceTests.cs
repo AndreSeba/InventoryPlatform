@@ -35,7 +35,7 @@ public class MovimientoServiceTests : IDisposable
 
         _db = new InventoryDbContext(options);
         _db.Database.EnsureCreated();
-        _service = new MovimientoService(_db);
+        _service = new MovimientoService(_db, new AuditoriaService(_db));
 
         // Movimiento.RegistradoPorId es un FK real contra Usuario, así que el actuante
         // tiene que existir en la base (antes bastaba con el string _usuario, que no

@@ -27,7 +27,7 @@ public class CategoriasController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<CategoriaDto>> Crear([FromBody] CrearCategoriaDto dto, CancellationToken ct)
     {
-        var creada = await _categoriaService.CrearAsync(dto, User.ObtenerPaisId(), ct);
+        var creada = await _categoriaService.CrearAsync(dto, User.ObtenerPaisId(), User.ObtenerUsuarioActuante(), ct);
         return CreatedAtAction(nameof(Listar), creada);
     }
 
@@ -37,5 +37,5 @@ public class CategoriasController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<CategoriaDto>> Actualizar(int id, [FromBody] ActualizarCategoriaDto dto, CancellationToken ct)
-        => Ok(await _categoriaService.ActualizarAsync(id, dto, User.ObtenerPaisId(), ct));
+        => Ok(await _categoriaService.ActualizarAsync(id, dto, User.ObtenerPaisId(), User.ObtenerUsuarioActuante(), ct));
 }

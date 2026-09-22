@@ -30,7 +30,7 @@ public class RolesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<RolDto>> Crear([FromBody] CrearRolDto dto, CancellationToken ct)
     {
-        var creado = await _rolService.CrearAsync(dto, User.ObtenerPaisId(), ct);
+        var creado = await _rolService.CrearAsync(dto, User.ObtenerPaisId(), User.ObtenerUsuarioActuante(), ct);
         return CreatedAtAction(nameof(Listar), creado);
     }
 
@@ -39,5 +39,5 @@ public class RolesController : ControllerBase
     [ProducesResponseType(typeof(RolDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<RolDto>> Actualizar(int id, [FromBody] ActualizarRolDto dto, CancellationToken ct)
-        => Ok(await _rolService.ActualizarAsync(id, dto, User.ObtenerPaisId(), ct));
+        => Ok(await _rolService.ActualizarAsync(id, dto, User.ObtenerPaisId(), User.ObtenerUsuarioActuante(), ct));
 }
