@@ -43,6 +43,37 @@ public class ProductoService : IProductoService
         return await MapearConExistenciaAsync(productos, ct);
     }
 
+    // Ver IProductoService — paralelo a ListarAsync, solo para Productos/Index (catálogo
+    // grande tras las cargas masivas). Filtra/cuenta/pagina en SQL y recién ahí calcula
+    // existencia/próximo vencimiento, solo para las filas de ESA página (MapearConExistenciaAsync
+    // ya soporta listas chicas — antes se la llamaba con el catálogo entero).
+    public async Task<PaginaDto<ProductoDto>> ListarPaginadoAsync(int paisId, int? categoriaId, bool incluirInactivos, string? busqueda, int pagina, int tamanoPagina, CancellationToken ct)
+    {
+        pagina = Math.Max(1, pagina);
+        tamanoPagina = Math.Clamp(tamanoPagina, 1, 100);
+
+        var query = _db.Productos.AsNoTracking().Include(p => p.Categoria).Include(p => p.Pais)
+            .Where(p => p.PaisId == paisId);
+
+        if (!incluirInactivos)
+            query = query.Where(p => p.Activo);
+
+        if (categoriaId is not null)
+            query = query.Where(p => p.CategoriaId == categoriaId);
+
+        var q = busqueda?.Trim();
+        if (!string.IsNullOrEmpty(q))
+            query = query.Where(p => p.Nombre.Contains(q) || p.CodigoProducto.Contains(q));
+
+        query = query.OrderBy(p => p.Nombre);
+
+        var total = await query.CountAsync(ct);
+        var productosDePagina = await query.Skip((pagina - 1) * tamanoPagina).Take(tamanoPagina).ToListAsync(ct);
+        var items = await MapearConExistenciaAsync(productosDePagina, ct);
+
+        return new PaginaDto<ProductoDto>(items, total);
+    }
+
     public async Task<ProductoDto> ObtenerPorIdAsync(int id, int paisId, CancellationToken ct)
     {
         var producto = await _db.Productos.AsNoTracking().Include(p => p.Categoria).Include(p => p.Pais)

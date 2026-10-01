@@ -29,6 +29,21 @@ public class ProductosController : ControllerBase
         return Ok(productos);
     }
 
+    // Ver PaginaDto — paralelo a Listar, solo para el catálogo de Productos/Index (grande
+    // tras las cargas masivas de inventario). El resto de consumidores (picker de
+    // Solicitudes/Nueva, resolución de categoría de Movimientos) sigue usando Listar.
+    [HttpGet("paginado")]
+    [Authorize(Policy = Permisos.ProductosVer)]
+    [ProducesResponseType(typeof(PaginaDto<ProductoDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PaginaDto<ProductoDto>>> ListarPaginado(
+        [FromQuery] int? categoriaId, [FromQuery] bool incluirInactivos, [FromQuery] string? busqueda,
+        [FromQuery] int pagina, [FromQuery] int tamanoPagina, CancellationToken ct)
+    {
+        var resultado = await _productoService.ListarPaginadoAsync(
+            User.ObtenerPaisId(), categoriaId, incluirInactivos, busqueda, pagina, tamanoPagina, ct);
+        return Ok(resultado);
+    }
+
     [HttpGet("{id:int}")]
     [Authorize(Policy = Permisos.ProductosVer)]
     [ProducesResponseType(typeof(ProductoDto), StatusCodes.Status200OK)]
