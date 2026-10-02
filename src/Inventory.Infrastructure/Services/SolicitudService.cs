@@ -238,7 +238,8 @@ public class SolicitudService : ISolicitudService
             d.Id, d.ProductoId, d.Producto?.Nombre ?? string.Empty, d.Producto?.CodigoProducto ?? string.Empty,
             d.Producto?.UnidadMedida ?? string.Empty, d.Producto?.CostoUnitario,
             d.CantidadSolicitada, d.CantidadAprobada, d.CantidadEntregada,
-            d.Retorna, d.UbicacionExterna, d.FechaRetornoEsperada
+            d.Retorna, d.UbicacionExterna, d.FechaRetornoEsperada,
+            d.Producto is { TieneImagen: true } ? $"/api/productos/{d.ProductoId}/imagen" : null
         )).ToList()
     );
 }

@@ -5,7 +5,10 @@ namespace Inventory.Application.Dtos;
 public record SolicitudDetalleDto(
     int Id, int ProductoId, string ProductoNombre, string ProductoCodigo, string UnidadMedida, decimal? CostoUnitario,
     int CantidadSolicitada, int? CantidadAprobada, int CantidadEntregada,
-    bool Retorna, string? UbicacionExterna, DateOnly? FechaRetornoEsperada
+    bool Retorna, string? UbicacionExterna, DateOnly? FechaRetornoEsperada,
+    // Ruta relativa a la foto del producto (null si no tiene) — para la miniatura del
+    // detalle de solicitud. Al final y con default para no romper otros constructores.
+    string? ImagenUrl = null
 );
 
 public record SolicitudDto(
