@@ -1,24 +1,38 @@
+using Inventory.Domain.Enums;
+
 namespace Inventory.Application.Dtos;
 
-public record ConteoDto(
-    int Id, string SesionConteo, int ProductoId, string ProductoNombre,
-    int UbicacionId, string UbicacionCodigo, int NumeroConteo,
-    int CantidadContada, int ContadoPorId, string ContadoPor, DateTime FechaConteo,
-    int ExistenciaSistema, int Diferencia
+public record ConteoResumenDto(
+    int Id, string Codigo, string? Nombre, EstadoConteo Estado,
+    DateTime FechaCreacion, string CreadoPor, DateTime? FechaCierre, string? CerradoPor,
+    int TotalLineas, int LineasContadas, int LineasConDiferencia, int CantidadEvidencias,
+    int? ConteoOrigenId, string? ConteoOrigenCodigo
 );
 
-public record RegistrarConteoDto(
-    string SesionConteo, int ProductoId, int UbicacionId, int NumeroConteo, int CantidadContada
+// Diferencia = CantidadContada - ExistenciaSistema (foto fija de cuando se creó el conteo).
+// CantidadContada y Diferencia son null mientras la línea no se contó.
+public record ConteoLineaDto(
+    int Id, int ProductoId, string ProductoCodigo, string ProductoNombre, string Categoria, string Unidad,
+    string? ImagenUrl, int UbicacionId, string UbicacionCodigo, int ExistenciaSistema,
+    int? CantidadContada, int? Diferencia, string? ContadoPor, DateTime? FechaConteo
 );
 
-// Sin UbicacionId a propósito (2026-09-15, pedido del operario): el operario elige
-// PRODUCTOS, no ubicaciones — el sistema arma una fila por cada (producto, ubicación)
-// donde ese producto realmente tiene stock (ver ProductoService.ListarUbicacionesConStockAsync).
-// ProductoIds es obligatorio y no puede venir vacío (2026-09-16): la hoja se arma SIEMPRE
-// sobre una selección explícita, nunca sobre el catálogo entero ni una categoría entera —
-// por eso CategoriaId tampoco viaja acá, quedó como filtro de la lista en el frontend.
-public record GenerarHojaConteoDto(List<int> ProductoIds);
+public record ConteoEvidenciaDto(int Id, string NombreArchivo, string ContentType, long TamanoBytes, string SubidoPor, DateTime FechaSubida);
 
-public record ImportarHojaConteoResultadoDto(
-    string SesionConteo, int ProductosContados, IReadOnlyList<ConteoDto> ConDiferencia
+public record ConteoDetalleDto(
+    ConteoResumenDto Resumen, string? Notas, string? MotivoCancelacion,
+    IReadOnlyList<ConteoLineaDto> Lineas, IReadOnlyList<ConteoEvidenciaDto> Evidencias
 );
+
+// ProductoIds obligatorio y nunca vacío: la hoja se arma SIEMPRE sobre una selección
+// explícita, nunca sobre el catálogo entero ni una categoría entera. Sin UbicacionId: el
+// sistema arma una línea por cada (producto, ubicación) donde ese producto tiene stock.
+public record CrearConteoDto(string? Nombre, string? Notas, List<int> ProductoIds);
+
+// Cantidad null = dejar la línea otra vez sin contar.
+public record CantidadLineaDto(int LineaId, int? Cantidad);
+public record GuardarCantidadesDto(List<CantidadLineaDto> Cantidades);
+
+public record CancelarConteoDto(string Motivo);
+
+public record ImportarHojaConteoResultadoDto(int LineasActualizadas, bool EvidenciaAdjuntada);

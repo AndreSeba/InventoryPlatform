@@ -92,11 +92,17 @@ SolicitudDetalle     → SolicitudId, ProductoId (único por Solicitud),
                        CantidadSolicitada, CantidadAprobada (null hasta
                        aprobar, <= Solicitada), CantidadEntregada (cache
                        acumulado desde los Movimiento de Salida ligados)
-Conteo               → SesionConteo, ProductoId, UbicacionId, NumeroConteo
-                       (permite reconteos 1,2,3…), CantidadContada,
-                       ContadoPorId (FK a Usuario) + ContadoPorNombre, FechaConteo
-                       # único por (SesionConteo, ProductoId, UbicacionId,
-                       # NumeroConteo)
+SesionConteo         → Codigo (generado: "CONT-{año}-{id:D6}", provisional único
+                       "TMP-{guid}" hasta tener Id), PaisId, Nombre, Notas,
+                       Estado (EnCurso|Cerrado|Cancelado), CreadoPorId + Nombre,
+                       CerradoPorId + Nombre + FechaCierre (también al cancelar),
+                       MotivoCancelacion, ConteoOrigenId (reconteo)
+SesionConteoLinea    → (SesionConteoId, ProductoId, UbicacionId) único,
+                       ExistenciaSistema (FOTO FIJA al crear), CantidadContada
+                       (null = sin contar; 0 = se contó y no había nada),
+                       ContadoPorId + Nombre, FechaConteo
+SesionConteoEvidencia→ NombreArchivo, ContentType, TamanoBytes, Datos (varbinary,
+                       tabla aparte a propósito), SubidoPorId + Nombre
 Auditoria            → log genérico (UsuarioId (FK a Usuario) + UsuarioNombre,
                        PaisId (FK a Pais, país de la SESIÓN del actor — ver
                        "Auditoría completa" más abajo), Entidad, EntidadId,
@@ -200,42 +206,51 @@ pero nunca regeneraba `ClaveProducto`, así que un producto editado de UNI a CAJ
 con la clave `...-UNI` mintiendo. Ahora la regenera y revalida que no choque con otro
 producto activo.
 
-### Hoja de conteo: selección explícita de productos, sin filtro de ubicación (2026-09-15/16)
+### Conteo físico: sesión con trazabilidad y evidencia (2026-10-02)
 
-`GenerarHojaConteoDto` es solo `List<int> ProductoIds` — **obligatorio, no puede venir
-vacío** (`SeleccionDeProductosVaciaException`, 400). Antes tenía además `UbicacionId`
-(obligar a elegir una sola ubicación por hoja) y `CategoriaId` (para generar por
-categoría entera, o el catálogo completo si no venía nada); los dos se sacaron por
-pedido explícito del usuario, en dos pasos:
+Antes un "conteo" era solo un texto `CONTEO-fecha` que nacía al bajar el Excel: sin estado,
+sin responsable, sin respaldo. Ahora es una entidad (`SesionConteo`) con ciclo de vida:
 
-- **Sin `UbicacionId`** (2026-09-15): el operario elige PRODUCTOS, no ubicaciones. El
-  servicio arma una fila por cada `(producto, ubicación)` donde ese producto tiene stock
-  ahora mismo — un producto guardado en 3 racks genera 3 filas. Mismo criterio que
-  `ProductoService.ListarUbicacionesConStockAsync`, pero agregado para todos los
-  productos elegidos de una sola consulta.
-- **Sin `CategoriaId`, `ProductoIds` obligatorio** (2026-09-16): generar con el catálogo
-  completo o una categoría entera es inmanejable en papel — un conteo físico se hace
-  siempre sobre un conjunto acotado. La categoría quedó como **filtro de la lista** en el
-  frontend (acota qué se ve para tildar), nunca como criterio de generación. Si alguno de
-  los ids pedidos no existe o está inactivo, el servicio falla en vez de generar en
-  silencio una hoja más corta que lo elegido.
+- **Crear** (`POST /api/conteos`, `CrearConteoDto(Nombre, Notas, ProductoIds)`): los productos
+  se eligen **uno por uno y nunca vacío** (`SeleccionDeProductosVaciaException`) — jamás el
+  catálogo ni una categoría entera, un conteo físico es sobre un conjunto acotado (hasta
+  1000). El servicio arma una línea por cada `(producto, ubicación)` con stock > 0 y guarda
+  su existencia como **foto fija** (`ExistenciaSistema`): la diferencia se calcula contra ella,
+  no contra el stock "vivo", para que movimientos posteriores no la distorsionen.
+- **Cargar cantidades**: grilla (`PUT /{id}/cantidades`) o Excel (`GET /{id}/hoja` →
+  `POST /{id}/importar`). Línea sin contar (`null`) ≠ `0`. Re-importar corrige.
+- **Evidencia** (`POST/GET/DELETE /{id}/evidencias`): foto JPG/PNG/WEBP, PDF o `.xlsx`, hasta
+  10 archivos de 10 MB. **El tipo se decide por los primeros bytes**, no por el Content-Type
+  ni la extensión (un archivo falso con extensión `.png` se rechaza). Se sirve CON
+  autorización (`conteos.ver`), a diferencia de la foto del producto.
+- **Cerrar** (`POST /{id}/cerrar`): exige TODO contado + al menos 1 evidencia. Es **un solo
+  UPDATE atómico** (`ExecuteUpdateAsync` con las condiciones en el `Where`), no "chequear y
+  después cerrar": así dos cierres simultáneos o un cierre contra una carga de cantidades no
+  se pisan. Cerrado/Cancelado son inmutables.
+- **Cancelar** (`POST /{id}/cancelar`, motivo obligatorio) y **reconteo** (`POST /{id}/reconteo`):
+  solo desde un conteo CERRADO con diferencias; nuevo conteo con solo las líneas que difieren y
+  la existencia medida de nuevo. Un índice único filtrado impide dos reconteos abiertos del
+  mismo origen.
+- **`EnCursoAsync`** (ConteoService): toda modificación pasa por ahí — transacción + un UPDATE
+  no-op que toma el candado de la fila solo si sigue EnCurso. Sin eso se podría guardar una
+  cantidad o evidencia DESPUÉS del cierre.
+- **El conteo NO ajusta stock** (decisión del usuario, "solo informe"): las diferencias quedan
+  a la vista y los ajustes se registran aparte, desde Movimientos.
+- Permisos: `conteos.ver` (listar/ver/bajar evidencia) y `conteos.registrar` (todo lo demás).
+  No se agregó permiso nuevo.
+- Auditoría: entidad `SesionConteo`, id = código; acciones Crear, Cargar cantidades,
+  Adjuntar/Eliminar evidencia, Cerrar, Cancelar.
+- Migración `ConteoConSesionYEvidencia`: **convierte los conteos viejos** (tabla `Conteo`) en
+  conteos CERRADOS "sin evidencia" antes de borrarla. Conviene un backup antes de aplicarla.
 
-**Formato del Excel:** pensado para imprimir y llenar a mano.
-- Sin cuadrícula, ni en pantalla ni al imprimir (`SheetView.ShowGridLines` y
-  `PageSetup.ShowGridlines` en `false`). **No volver a poner recuadros por fila** — solo
-  una regla bajo el encabezado y un renglón fino (`Hair`) bajo cada fila, para escribir.
-- Filas de 22 de alto y columna "Cantidad Contada" (la última, con fondo tenue) de ancho
-  fijo, para que se vea dónde escribir.
-- El encabezado se repite en cada página (`SetRowsToRepeatAtTop`) y hay pie con "Página X
-  de Y" — sin eso, de la hoja 2 en adelante no se sabe qué columna es cuál.
-
-⚠️ **El layout de celdas es un contrato con el importador**: `ImportarHojaConteoAsync`
-lee la sesión en `B2`, el `ProductoId` en la columna 1 y el `UbicacionId` en la columna 2
-(ambas ocultas, no se imprimen — la ubicación viaja por FILA, no en el encabezado, porque
-un mismo producto puede aparecer en varias filas con ubicaciones distintas) y la cantidad
-contada en la última columna (`ColumnasExcel` = 9), desde `FilaEncabezado + 1`. Mover una
-celda rompe la importación sin error de compilación — si hay que reacomodar, tocar las
-dos puntas juntas.
+⚠️ **El layout de celdas del Excel es un contrato con el importador** (`LeerHoja`): sesión en
+`B2` (debe coincidir con el código del conteo — así no se importa la hoja de otro), `ProductoId`
+en la columna 1 y `UbicacionId` en la 2 (ocultas, la ubicación viaja por FILA), cantidad en la
+última columna (`ColumnasExcel` = 9) desde `FilaEncabezado + 1`. Se exige un entero exacto
+(3.5 se rechaza, no se redondea). Mover una celda rompe la importación sin error de compilación.
+Formato pensado para imprimir y llenar a mano: sin cuadrícula (`ShowGridLines` y
+`PageSetup.ShowGridlines` en `false`), renglón fino bajo cada fila, encabezado repetido por página
+y pie "Página X de Y". **No volver a poner recuadros por fila.**
 
 ### Quién hizo cada cosa: FK + snapshot del nombre (2026-09-16)
 
@@ -318,9 +333,9 @@ desactivar), a mano, con `_db.Auditorias.Add(...)` inline y sin país. Ahora:
     se edita ni se borra, ver arriba), `ValorAnterior` siempre null.
   - `SolicitudService`: Crear/Aprobar/Rechazar (el estado + `CantidadAprobada` por
     línea, antes/después).
-  - `ConteoService`: Registrar (cubre también `ImportarHojaConteoAsync`, que llama a
-    `RegistrarAsync` en loop — una fila de auditoría por conteo importado, no una
-    por archivo).
+  - `ConteoService`: Crear/Cargar cantidades/Adjuntar y Eliminar evidencia/Cerrar/Cancelar
+    (entidad `SesionConteo`, ver "Conteo físico"). Una importación de Excel es UNA fila de
+    auditoría, no una por línea.
   - `UsuarioService`: Crear/Actualizar — **nunca `PasswordHash`** en el snapshot.
   - `RolService`: Crear/Actualizar — el snapshot guarda `PermisoId` (no el código),
     para no depender de que `RolPermiso.Permiso` esté incluido en la query.

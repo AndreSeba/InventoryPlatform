@@ -137,12 +137,26 @@ public class SolicitudEstadoInvalidoException : DominioException
     public SolicitudEstadoInvalidoException(string mensaje) : base(mensaje) { }
 }
 
-public class ConteoDuplicadoException : DominioException
+public class ConteoNoEncontradoException : DominioException
+{
+    public override int Status => 404;
+
+    public ConteoNoEncontradoException(int id)
+        : base($"No existe un conteo con id {id}.") { }
+}
+
+public class ConteoEstadoInvalidoException : DominioException
 {
     public override int Status => 409;
 
-    public ConteoDuplicadoException(string sesion, int numeroConteo)
-        : base($"Ya existe el conteo N.º {numeroConteo} de este producto/ubicación en la sesión '{sesion}'.") { }
+    public ConteoEstadoInvalidoException(string mensaje) : base(mensaje) { }
+}
+
+public class ConteoInvalidoException : DominioException
+{
+    public override int Status => 400;
+
+    public ConteoInvalidoException(string mensaje) : base(mensaje) { }
 }
 
 public class CredencialesInvalidasException : DominioException

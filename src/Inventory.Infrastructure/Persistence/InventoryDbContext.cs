@@ -18,7 +18,9 @@ public class InventoryDbContext : DbContext
     public DbSet<Movimiento> Movimientos => Set<Movimiento>();
     public DbSet<Solicitud> Solicitudes => Set<Solicitud>();
     public DbSet<SolicitudDetalle> SolicitudDetalles => Set<SolicitudDetalle>();
-    public DbSet<Conteo> Conteos => Set<Conteo>();
+    public DbSet<SesionConteo> SesionesConteo => Set<SesionConteo>();
+    public DbSet<SesionConteoLinea> SesionConteoLineas => Set<SesionConteoLinea>();
+    public DbSet<SesionConteoEvidencia> SesionConteoEvidencias => Set<SesionConteoEvidencia>();
     public DbSet<Auditoria> Auditorias => Set<Auditoria>();
 
     public DbSet<Usuario> Usuarios => Set<Usuario>();

@@ -3,6 +3,7 @@ using Inventory.Application.Dtos;
 using Inventory.Application.Exceptions;
 using Inventory.Application.Interfaces;
 using Inventory.Domain.Entities;
+using Inventory.Domain.Enums;
 using Inventory.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,6 +11,15 @@ namespace Inventory.Infrastructure.Services;
 
 public class ConteoService : IConteoService
 {
+    // Topes que vuelven 400 a lo que antes era un 500 de truncado/constraint en la base.
+    private const int MaxProductosPorConteo = 1000;
+    private const int MaxCantidadContada = 100_000_000;
+    private const int MaxEvidenciasPorConteo = 10;
+    private const int MaxBytesEvidencia = 10 * 1024 * 1024;
+    private const int MaxLargoNombreArchivo = 200;
+
+    private const string ContentTypeXlsx = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
     private readonly InventoryDbContext _db;
     private readonly IAuditoriaService _auditoria;
 
@@ -19,87 +29,246 @@ public class ConteoService : IConteoService
         _auditoria = auditoria;
     }
 
-    public async Task<ConteoDto> RegistrarAsync(RegistrarConteoDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
+    // ---------------------------------------------------------------- lectura
+
+    public async Task<IReadOnlyList<ConteoResumenDto>> ListarAsync(EstadoConteo? estado, int paisId, CancellationToken ct)
     {
-        if (dto.NumeroConteo < 1)
-            throw new ArgumentOutOfRangeException(nameof(dto.NumeroConteo), "El número de conteo debe ser 1 o mayor.");
-        if (dto.CantidadContada < 0)
-            throw new ArgumentOutOfRangeException(nameof(dto.CantidadContada), "La cantidad contada no puede ser negativa.");
+        var consulta = _db.SesionesConteo.AsNoTracking().Where(s => s.PaisId == paisId);
+        if (estado is not null) consulta = consulta.Where(s => s.Estado == estado);
 
-        // Filtrando producto Y ubicación por el país de la sesión, igual que
-        // MovimientoService — evita de raíz contar stock de un producto de otro país.
-        var producto = await _db.Productos.FirstOrDefaultAsync(p => p.Id == dto.ProductoId && p.PaisId == paisId && p.Activo, ct)
-            ?? throw new ProductoNoEncontradoException(dto.ProductoId);
-
-        var ubicacion = await _db.Ubicaciones.Include(u => u.Almacen)
-            .FirstOrDefaultAsync(u => u.Id == dto.UbicacionId && u.Almacen!.PaisId == paisId && u.Activo, ct)
-            ?? throw new UbicacionNoEncontradaException(dto.UbicacionId);
-
-        // UQ_Conteo_Sesion (guía v3/v4): permite reconteos, no duplicar el mismo número.
-        var yaExiste = await _db.Conteos.AnyAsync(c =>
-            c.SesionConteo == dto.SesionConteo && c.ProductoId == dto.ProductoId &&
-            c.UbicacionId == dto.UbicacionId && c.NumeroConteo == dto.NumeroConteo, ct);
-        if (yaExiste)
-            throw new ConteoDuplicadoException(dto.SesionConteo, dto.NumeroConteo);
-
-        var conteo = new Conteo
-        {
-            SesionConteo = dto.SesionConteo,
-            ProductoId = producto.Id,
-            UbicacionId = ubicacion.Id,
-            NumeroConteo = dto.NumeroConteo,
-            CantidadContada = dto.CantidadContada,
-            ContadoPorId = usuario.Id,
-            ContadoPorNombre = usuario.Nombre,
-            FechaConteo = DateTime.UtcNow,
-        };
-
-        _db.Conteos.Add(conteo);
-        await _db.SaveChangesAsync(ct);
-
-        await _auditoria.RegistrarAsync(nameof(Conteo), conteo.Id.ToString(), "Registrar", null,
-            _auditoria.Capturar(new { conteo.SesionConteo, conteo.ProductoId, conteo.UbicacionId, conteo.NumeroConteo, conteo.CantidadContada }),
-            paisId, usuario, null, ct);
-
-        var existenciaSistema = await _db.Movimientos
-            .Where(m => m.ProductoId == producto.Id && m.UbicacionId == ubicacion.Id)
-            .SumAsync(m => (int?)m.CantidadEfectiva, ct) ?? 0;
-
-        return new ConteoDto(
-            conteo.Id, conteo.SesionConteo, conteo.ProductoId, producto.Nombre, conteo.UbicacionId,
-            ubicacion.CodigoUbicacion, conteo.NumeroConteo, conteo.CantidadContada, conteo.ContadoPorId, conteo.ContadoPorNombre,
-            conteo.FechaConteo, existenciaSistema, conteo.CantidadContada - existenciaSistema
-        );
+        return await consulta
+            .OrderByDescending(s => s.FechaCreacion).ThenByDescending(s => s.Id)
+            .Take(500)
+            .Select(s => new ConteoResumenDto(
+                s.Id, s.Codigo, s.Nombre, s.Estado, s.FechaCreacion, s.CreadoPorNombre, s.FechaCierre, s.CerradoPorNombre,
+                s.Lineas.Count(),
+                s.Lineas.Count(l => l.CantidadContada != null),
+                s.Lineas.Count(l => l.CantidadContada != null && l.CantidadContada != l.ExistenciaSistema),
+                s.Evidencias.Count(),
+                s.ConteoOrigenId, s.ConteoOrigen == null ? null : s.ConteoOrigen.Codigo))
+            .ToListAsync(ct);
     }
 
-    public async Task<IReadOnlyList<ConteoDto>> ListarPorSesionAsync(string sesionConteo, int paisId, CancellationToken ct)
+    public async Task<ConteoDetalleDto> ObtenerAsync(int id, int paisId, CancellationToken ct)
     {
-        var conteos = await _db.Conteos.AsNoTracking()
-            .Include(c => c.Producto).Include(c => c.Ubicacion)
-            .Where(c => c.SesionConteo == sesionConteo && c.Producto!.PaisId == paisId)
-            .OrderBy(c => c.Producto!.Nombre).ThenBy(c => c.NumeroConteo)
+        var sesion = await _db.SesionesConteo.AsNoTracking().Include(s => s.ConteoOrigen)
+            .FirstOrDefaultAsync(s => s.Id == id && s.PaisId == paisId, ct)
+            ?? throw new ConteoNoEncontradoException(id);
+
+        var lineas = await _db.SesionConteoLineas.AsNoTracking()
+            .Include(l => l.Producto!).ThenInclude(p => p.Categoria)
+            .Include(l => l.Ubicacion)
+            .Where(l => l.SesionConteoId == id)
+            .OrderBy(l => l.Producto!.Nombre).ThenBy(l => l.Ubicacion!.CodigoUbicacion)
             .ToListAsync(ct);
 
-        if (conteos.Count == 0) return [];
+        // Proyección sin Datos: listar la evidencia nunca debe leer los bytes del archivo.
+        var evidencias = await _db.SesionConteoEvidencias.AsNoTracking()
+            .Where(e => e.SesionConteoId == id)
+            .OrderBy(e => e.Id)
+            .Select(e => new ConteoEvidenciaDto(e.Id, e.NombreArchivo, e.ContentType, e.TamanoBytes, e.SubidoPorNombre, e.FechaSubida))
+            .ToListAsync(ct);
 
-        var claves = conteos.Select(c => (c.ProductoId, c.UbicacionId)).Distinct().ToList();
-        var existencias = new Dictionary<(int, int), int>();
-        foreach (var (productoId, ubicacionId) in claves)
+        var lineasDto = lineas.Select(l => new ConteoLineaDto(
+            l.Id, l.ProductoId, l.Producto!.CodigoProducto, l.Producto.Nombre,
+            l.Producto.Categoria?.CodigoCategoria ?? string.Empty, l.Producto.UnidadMedida,
+            l.Producto.TieneImagen ? $"/api/productos/{l.ProductoId}/imagen" : null,
+            l.UbicacionId, l.Ubicacion!.CodigoUbicacion, l.ExistenciaSistema,
+            l.CantidadContada, l.CantidadContada is null ? null : l.CantidadContada - l.ExistenciaSistema,
+            l.ContadoPorNombre, l.FechaConteo)).ToList();
+
+        var resumen = new ConteoResumenDto(
+            sesion.Id, sesion.Codigo, sesion.Nombre, sesion.Estado, sesion.FechaCreacion, sesion.CreadoPorNombre,
+            sesion.FechaCierre, sesion.CerradoPorNombre,
+            lineasDto.Count,
+            lineasDto.Count(l => l.CantidadContada is not null),
+            lineasDto.Count(l => l.Diferencia is not null && l.Diferencia != 0),
+            evidencias.Count,
+            sesion.ConteoOrigenId, sesion.ConteoOrigen?.Codigo);
+
+        return new ConteoDetalleDto(resumen, sesion.Notas, sesion.MotivoCancelacion, lineasDto, evidencias);
+    }
+
+    // ---------------------------------------------------------------- crear
+
+    public async Task<ConteoDetalleDto> CrearAsync(CrearConteoDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
+    {
+        var nombre = NormalizarTexto(dto.Nombre, 150, "El nombre");
+        var notas = NormalizarTexto(dto.Notas, 500, "Las notas");
+
+        // La hoja se arma SIEMPRE sobre productos elegidos uno por uno: un conteo físico se
+        // hace sobre un conjunto acotado, y una hoja con el catálogo completo es inmanejable.
+        if (dto.ProductoIds is not { Count: > 0 })
+            throw new SeleccionDeProductosVaciaException();
+
+        var idsPedidos = dto.ProductoIds.Distinct().ToList();
+        if (idsPedidos.Count > MaxProductosPorConteo)
+            throw new ConteoInvalidoException($"Un conteo admite hasta {MaxProductosPorConteo} productos. Dividilo en varios conteos.");
+
+        var productos = await _db.Productos.AsNoTracking()
+            .Where(p => p.Activo && p.PaisId == paisId && idsPedidos.Contains(p.Id))
+            .Select(p => p.Id)
+            .ToListAsync(ct);
+
+        // Si alguno de los ids pedidos no existe o está inactivo, avisar en vez de armar
+        // en silencio un conteo más corto que lo que el usuario eligió.
+        if (productos.Count != idsPedidos.Count)
         {
-            existencias[(productoId, ubicacionId)] = await _db.Movimientos
-                .Where(m => m.ProductoId == productoId && m.UbicacionId == ubicacionId)
-                .SumAsync(m => (int?)m.CantidadEfectiva, ct) ?? 0;
+            var faltantes = idsPedidos.Except(productos).Count();
+            throw new ConteoInvalidoException(
+                $"No se puede crear el conteo: {faltantes} de los productos seleccionados ya no existen o están inactivos.");
         }
 
-        return conteos.Select(c =>
-        {
-            var existenciaSistema = existencias[(c.ProductoId, c.UbicacionId)];
-            return new ConteoDto(
-                c.Id, c.SesionConteo, c.ProductoId, c.Producto!.Nombre, c.UbicacionId, c.Ubicacion!.CodigoUbicacion,
-                c.NumeroConteo, c.CantidadContada, c.ContadoPorId, c.ContadoPorNombre, c.FechaConteo, existenciaSistema, c.CantidadContada - existenciaSistema
-            );
-        }).ToList();
+        var existencias = await ExistenciasPorUbicacionAsync(idsPedidos, soloConStock: true, ct);
+        if (existencias.Count == 0)
+            throw new ConteoInvalidoException("Ninguno de los productos elegidos tiene stock en alguna ubicación.");
+
+        var lineas = existencias.Select(e => (e.Key.ProductoId, e.Key.UbicacionId, Existencia: e.Value)).ToList();
+        return await CrearSesionAsync(nombre, notas, null, lineas, paisId, usuario, ct);
     }
+
+    public async Task<ConteoDetalleDto> CrearReconteoAsync(int id, int paisId, UsuarioActuante usuario, CancellationToken ct)
+    {
+        var origen = await _db.SesionesConteo.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Id == id && s.PaisId == paisId, ct)
+            ?? throw new ConteoNoEncontradoException(id);
+
+        if (origen.Estado != EstadoConteo.Cerrado)
+            throw new ConteoEstadoInvalidoException("Solo se puede abrir un reconteo desde un conteo cerrado.");
+
+        var conDiferencia = await _db.SesionConteoLineas.AsNoTracking()
+            .Where(l => l.SesionConteoId == id && l.CantidadContada != null && l.CantidadContada != l.ExistenciaSistema)
+            .Select(l => new { l.ProductoId, l.UbicacionId })
+            .ToListAsync(ct);
+
+        if (conDiferencia.Count == 0)
+            throw new ConteoInvalidoException("Este conteo no tiene diferencias: no hace falta un reconteo.");
+
+        if (await _db.SesionesConteo.AnyAsync(s => s.ConteoOrigenId == id && s.Estado == EstadoConteo.EnCurso, ct))
+            throw new ConteoEstadoInvalidoException("Ya hay un reconteo en curso de este conteo. Terminalo o cancelalo antes de abrir otro.");
+
+        // La existencia se vuelve a medir AHORA: el reconteo compara contra lo que el
+        // sistema dice hoy, no contra la foto vieja del conteo original.
+        var productoIds = conDiferencia.Select(l => l.ProductoId).Distinct().ToList();
+        var existencias = await ExistenciasPorUbicacionAsync(productoIds, soloConStock: false, ct);
+        var lineas = conDiferencia
+            .Select(l => (l.ProductoId, l.UbicacionId, Existencia: existencias.GetValueOrDefault((l.ProductoId, l.UbicacionId))))
+            .ToList();
+
+        try
+        {
+            return await CrearSesionAsync($"Reconteo de {origen.Codigo}", null, origen.Id, lineas, paisId, usuario, ct);
+        }
+        catch (DbUpdateException)
+        {
+            // Índice único filtrado: otro clic simultáneo ya abrió el reconteo.
+            throw new ConteoEstadoInvalidoException("Ya hay un reconteo en curso de este conteo. Terminalo o cancelalo antes de abrir otro.");
+        }
+    }
+
+    private async Task<ConteoDetalleDto> CrearSesionAsync(
+        string? nombre, string? notas, int? origenId, List<(int ProductoId, int UbicacionId, int Existencia)> lineas,
+        int paisId, UsuarioActuante usuario, CancellationToken ct)
+    {
+        SesionConteo sesion;
+        await using (var tx = await _db.Database.BeginTransactionAsync(ct))
+        {
+            sesion = new SesionConteo
+            {
+                // Código provisional ÚNICO (no una constante compartida): dos altas simultáneas
+                // no pueden chocar contra el índice único mientras esperan su Id definitivo.
+                Codigo = "TMP-" + Guid.NewGuid().ToString("N"),
+                PaisId = paisId,
+                Nombre = nombre,
+                Notas = notas,
+                Estado = EstadoConteo.EnCurso,
+                CreadoPorId = usuario.Id,
+                CreadoPorNombre = usuario.Nombre,
+                FechaCreacion = DateTime.UtcNow,
+                ConteoOrigenId = origenId,
+                Lineas = lineas.Select(l => new SesionConteoLinea
+                {
+                    ProductoId = l.ProductoId,
+                    UbicacionId = l.UbicacionId,
+                    ExistenciaSistema = l.Existencia,
+                }).ToList(),
+            };
+            _db.SesionesConteo.Add(sesion);
+            await _db.SaveChangesAsync(ct);
+
+            sesion.Codigo = $"CONT-{DateTime.UtcNow:yyyy}-{sesion.Id:D6}";
+            await _db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+        }
+
+        await _auditoria.RegistrarAsync(nameof(SesionConteo), sesion.Codigo, "Crear", null,
+            _auditoria.Capturar(new { sesion.Codigo, sesion.Nombre, sesion.Estado, Lineas = lineas.Count, ConteoOrigenId = origenId }),
+            paisId, usuario, null, ct);
+
+        return await ObtenerAsync(sesion.Id, paisId, ct);
+    }
+
+    // ---------------------------------------------------------------- cantidades
+
+    public async Task<ConteoDetalleDto> GuardarCantidadesAsync(int id, GuardarCantidadesDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
+    {
+        if (dto.Cantidades is not { Count: > 0 })
+            throw new ConteoInvalidoException("No hay cantidades para guardar.");
+        if (dto.Cantidades.Count > MaxProductosPorConteo * 5)
+            throw new ConteoInvalidoException("Demasiadas líneas en una sola carga.");
+
+        foreach (var c in dto.Cantidades)
+            if (c.Cantidad is < 0 or > MaxCantidadContada)
+                throw new ConteoInvalidoException($"La cantidad contada debe estar entre 0 y {MaxCantidadContada:N0}.");
+
+        // Si una línea viene repetida, vale la última.
+        var nuevas = dto.Cantidades.GroupBy(c => c.LineaId).ToDictionary(g => g.Key, g => g.Last().Cantidad);
+
+        var (anterior, nuevo) = await EnCursoAsync(id, paisId, () => AplicarCantidadesAsync(id, nuevas, usuario, ct), ct);
+
+        if (nuevo.Count > 0)
+            await _auditoria.RegistrarAsync(nameof(SesionConteo), await CodigoAsync(id, ct), "Cargar cantidades",
+                _auditoria.Capturar(anterior), _auditoria.Capturar(nuevo), paisId, usuario, null, ct);
+
+        return await ObtenerAsync(id, paisId, ct);
+    }
+
+    private async Task<(Dictionary<string, int?> Anterior, Dictionary<string, int?> Nuevo)> AplicarCantidadesAsync(
+        int sesionId, Dictionary<int, int?> nuevas, UsuarioActuante usuario, CancellationToken ct)
+    {
+        var ids = nuevas.Keys.ToList();
+        var lineas = await _db.SesionConteoLineas
+            .Include(l => l.Producto).Include(l => l.Ubicacion)
+            .Where(l => l.SesionConteoId == sesionId && ids.Contains(l.Id))
+            .ToListAsync(ct);
+
+        if (lineas.Count != ids.Count)
+            throw new ConteoInvalidoException("Alguna de las líneas no pertenece a este conteo.");
+
+        var anterior = new Dictionary<string, int?>();
+        var nuevo = new Dictionary<string, int?>();
+        var ahora = DateTime.UtcNow;
+
+        foreach (var l in lineas)
+        {
+            var cantidad = nuevas[l.Id];
+            if (l.CantidadContada == cantidad) continue;
+
+            var clave = $"{l.Producto!.CodigoProducto} @ {l.Ubicacion!.CodigoUbicacion}";
+            anterior[clave] = l.CantidadContada;
+            nuevo[clave] = cantidad;
+
+            l.CantidadContada = cantidad;
+            l.ContadoPorId = cantidad is null ? null : usuario.Id;
+            l.ContadoPorNombre = cantidad is null ? null : usuario.Nombre;
+            l.FechaConteo = cantidad is null ? null : ahora;
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return (anterior, nuevo);
+    }
+
+    // ---------------------------------------------------------------- Excel
 
     // Fila donde arranca el encabezado de la tabla de productos en la hoja generada
     // (deja lugar arriba para el título y los datos de sesión/fecha) — el importador lee
@@ -107,50 +276,18 @@ public class ConteoService : IConteoService
     private const int FilaEncabezado = 5;
     private const int ColumnasExcel = 9;
 
-    // Sin ubicación como filtro de entrada (2026-09-15, pedido del operario): se eligen
-    // PRODUCTOS, y la hoja arma una fila por cada (producto, ubicación) donde ese producto
-    // tiene stock ahora mismo — un producto guardado en 3 racks genera 3 filas. Reusa el
-    // mismo criterio de "dónde tiene stock" que ProductoService.ListarUbicacionesConStockAsync,
-    // pero de una sola consulta agrupada para todos los productos elegidos a la vez.
-    public async Task<(byte[] Contenido, string NombreArchivo, string SesionConteo)> GenerarHojaConteoAsync(GenerarHojaConteoDto dto, int paisId, CancellationToken ct)
+    public async Task<(byte[] Contenido, string NombreArchivo)> GenerarHojaAsync(int id, int paisId, CancellationToken ct)
     {
-        // La hoja se arma SIEMPRE sobre productos elegidos uno por uno (2026-09-16). Antes,
-        // si no venía selección, caía a "todos los productos activos" (o a una categoría
-        // entera), que es justo lo que no se quiere: un conteo físico se hace sobre un
-        // conjunto acotado, y una hoja con el catálogo completo es inmanejable en papel.
-        if (dto.ProductoIds is not { Count: > 0 })
-            throw new SeleccionDeProductosVaciaException();
+        var sesion = await _db.SesionesConteo.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Id == id && s.PaisId == paisId, ct)
+            ?? throw new ConteoNoEncontradoException(id);
 
-        var idsPedidos = dto.ProductoIds.Distinct().ToList();
-
-        var productos = await _db.Productos.AsNoTracking().Include(p => p.Categoria)
-            .Where(p => p.Activo && p.PaisId == paisId && idsPedidos.Contains(p.Id))
-            .OrderBy(p => p.Nombre)
+        var lineas = await _db.SesionConteoLineas.AsNoTracking()
+            .Include(l => l.Producto!).ThenInclude(p => p.Categoria)
+            .Include(l => l.Ubicacion)
+            .Where(l => l.SesionConteoId == id)
+            .OrderBy(l => l.Producto!.Nombre).ThenBy(l => l.Ubicacion!.CodigoUbicacion)
             .ToListAsync(ct);
-
-        // Si alguno de los ids pedidos no existe o está inactivo, avisar en vez de
-        // generar en silencio una hoja más corta que lo que el usuario eligió.
-        if (productos.Count != idsPedidos.Count)
-        {
-            var faltantes = idsPedidos.Except(productos.Select(p => p.Id)).ToList();
-            throw new ArchivoInvalidoException(
-                $"No se puede generar la hoja: {faltantes.Count} de los productos seleccionados ya no existen o están inactivos.");
-        }
-
-        var productoIds = productos.Select(p => p.Id).ToList();
-
-        var filas = await _db.Movimientos.AsNoTracking()
-            .Where(m => productoIds.Contains(m.ProductoId))
-            .GroupBy(m => new { m.ProductoId, m.UbicacionId, m.Ubicacion!.CodigoUbicacion })
-            .Where(g => g.Sum(m => m.CantidadEfectiva) > 0)
-            .Select(g => new { g.Key.ProductoId, g.Key.UbicacionId, g.Key.CodigoUbicacion, Existencia = g.Sum(m => m.CantidadEfectiva) })
-            .ToListAsync(ct);
-
-        if (filas.Count == 0)
-            throw new ArchivoInvalidoException("Ninguno de los productos elegidos tiene stock en alguna ubicación.");
-
-        var productosPorId = productos.ToDictionary(p => p.Id);
-        var sesionConteo = $"CONTEO-{DateTime.UtcNow:yyyyMMdd-HHmmss}";
 
         using var libro = new XLWorkbook();
         var hoja = libro.Worksheets.Add("Conteo");
@@ -162,10 +299,16 @@ public class ConteoService : IConteoService
 
         hoja.Cell(2, 1).Value = "Sesión:";
         hoja.Cell(2, 1).Style.Font.Bold = true;
-        hoja.Cell(2, 2).Value = sesionConteo;
+        hoja.Cell(2, 2).Value = sesion.Codigo;
         hoja.Cell(3, 1).Value = "Fecha:";
         hoja.Cell(3, 1).Style.Font.Bold = true;
-        hoja.Cell(3, 2).Value = DateTime.Now.ToString("dd/MM/yyyy HH:mm");
+        hoja.Cell(3, 2).Value = sesion.FechaCreacion.ToLocalTime().ToString("dd/MM/yyyy HH:mm");
+        if (!string.IsNullOrWhiteSpace(sesion.Nombre))
+        {
+            hoja.Cell(4, 1).Value = "Nombre:";
+            hoja.Cell(4, 1).Style.Font.Bold = true;
+            hoja.Cell(4, 2).Value = sesion.Nombre;
+        }
 
         string[] encabezados = ["ProductoId", "UbicacionId", "Código", "Producto", "Categoría", "Unidad", "Ubicación", "Existencia Sistema", "Cantidad Contada"];
         for (var col = 0; col < encabezados.Length; col++)
@@ -181,18 +324,19 @@ public class ConteoService : IConteoService
         rangoEncabezado.Style.Alignment.Vertical = XLAlignmentVerticalValues.Bottom;
 
         var fila = FilaEncabezado + 1;
-        foreach (var f in filas.OrderBy(x => productosPorId[x.ProductoId].Nombre).ThenBy(x => x.CodigoUbicacion))
+        foreach (var l in lineas)
         {
-            var producto = productosPorId[f.ProductoId];
-            hoja.Cell(fila, 1).Value = f.ProductoId;
-            hoja.Cell(fila, 2).Value = f.UbicacionId;
-            hoja.Cell(fila, 3).Value = producto.CodigoProducto;
-            hoja.Cell(fila, 4).Value = producto.Nombre;
-            hoja.Cell(fila, 5).Value = producto.Categoria?.CodigoCategoria ?? "";
-            hoja.Cell(fila, 6).Value = producto.UnidadMedida;
-            hoja.Cell(fila, 7).Value = f.CodigoUbicacion;
-            hoja.Cell(fila, 8).Value = f.Existencia;
+            hoja.Cell(fila, 1).Value = l.ProductoId;
+            hoja.Cell(fila, 2).Value = l.UbicacionId;
+            hoja.Cell(fila, 3).Value = l.Producto!.CodigoProducto;
+            hoja.Cell(fila, 4).Value = l.Producto.Nombre;
+            hoja.Cell(fila, 5).Value = l.Producto.Categoria?.CodigoCategoria ?? "";
+            hoja.Cell(fila, 6).Value = l.Producto.UnidadMedida;
+            hoja.Cell(fila, 7).Value = l.Ubicacion!.CodigoUbicacion;
+            hoja.Cell(fila, 8).Value = l.ExistenciaSistema;
             hoja.Cell(fila, 8).Style.NumberFormat.Format = "#,##0";
+            // Si ya se había cargado algo, la hoja baja con eso: se puede corregir y reimportar.
+            if (l.CantidadContada is not null) hoja.Cell(fila, ColumnasExcel).Value = l.CantidadContada.Value;
 
             // Una sola línea fina abajo, como renglón para escribir la cantidad contada —
             // sin recuadros completos, que en papel vuelven la hoja ilegible.
@@ -235,17 +379,58 @@ public class ConteoService : IConteoService
 
         using var stream = new MemoryStream();
         libro.SaveAs(stream);
-
-        var nombreArchivo = $"ConteoFisico_{DateTime.UtcNow:yyyyMMdd_HHmmss}.xlsx";
-        return (stream.ToArray(), nombreArchivo, sesionConteo);
+        return (stream.ToArray(), $"{sesion.Codigo}.xlsx");
     }
 
-    public async Task<ImportarHojaConteoResultadoDto> ImportarHojaConteoAsync(Stream archivo, int paisId, UsuarioActuante usuario, CancellationToken ct)
+    public async Task<ImportarHojaConteoResultadoDto> ImportarHojaAsync(
+        int id, byte[] archivo, string nombreArchivo, bool adjuntarComoEvidencia, int paisId, UsuarioActuante usuario, CancellationToken ct)
+    {
+        var codigo = await _db.SesionesConteo.AsNoTracking()
+            .Where(s => s.Id == id && s.PaisId == paisId).Select(s => s.Codigo).FirstOrDefaultAsync(ct)
+            ?? throw new ConteoNoEncontradoException(id);
+
+        var leidas = LeerHoja(archivo, codigo);
+
+        var actualizadas = 0;
+        var adjuntada = false;
+        var (anterior, nuevo) = await EnCursoAsync(id, paisId, async () =>
+        {
+            var lineas = await _db.SesionConteoLineas
+                .Include(l => l.Producto).Include(l => l.Ubicacion)
+                .Where(l => l.SesionConteoId == id)
+                .ToListAsync(ct);
+            var porClave = lineas.ToDictionary(l => (l.ProductoId, l.UbicacionId));
+
+            var desconocidas = leidas.Keys.Where(k => !porClave.ContainsKey(k)).ToList();
+            if (desconocidas.Count > 0)
+                throw new ArchivoInvalidoException($"El archivo trae {desconocidas.Count} fila(s) que no pertenecen a este conteo.");
+
+            var cambiosPorLinea = leidas.ToDictionary(kv => porClave[kv.Key].Id, kv => (int?)kv.Value);
+            var resultado = await AplicarCantidadesAsync(id, cambiosPorLinea, usuario, ct);
+            actualizadas = leidas.Count;
+
+            if (adjuntarComoEvidencia)
+            {
+                await AgregarEvidenciaAsync(id, nombreArchivo, archivo, usuario, ct);
+                await _db.SaveChangesAsync(ct);
+                adjuntada = true;
+            }
+            return resultado;
+        }, ct);
+
+        if (nuevo.Count > 0)
+            await _auditoria.RegistrarAsync(nameof(SesionConteo), codigo, "Cargar cantidades",
+                _auditoria.Capturar(anterior), _auditoria.Capturar(nuevo), paisId, usuario, "Importación de hoja Excel", ct);
+
+        return new ImportarHojaConteoResultadoDto(actualizadas, adjuntada);
+    }
+
+    private static Dictionary<(int ProductoId, int UbicacionId), int> LeerHoja(byte[] archivo, string codigoEsperado)
     {
         XLWorkbook libro;
         try
         {
-            libro = new XLWorkbook(archivo);
+            libro = new XLWorkbook(new MemoryStream(archivo));
         }
         catch (Exception)
         {
@@ -257,26 +442,31 @@ public class ConteoService : IConteoService
             var hoja = libro.Worksheets.FirstOrDefault()
                 ?? throw new ArchivoInvalidoException("El archivo no tiene ninguna hoja.");
 
-            var sesionConteo = hoja.Cell(2, 2).GetString().Trim();
-            if (string.IsNullOrWhiteSpace(sesionConteo))
+            var codigoArchivo = hoja.Cell(2, 2).GetString().Trim();
+            if (string.IsNullOrWhiteSpace(codigoArchivo))
                 throw new ArchivoInvalidoException("El archivo no tiene el formato de la hoja de conteo generada por el sistema.");
+            if (!string.Equals(codigoArchivo, codigoEsperado, StringComparison.Ordinal))
+                throw new ArchivoInvalidoException($"Este Excel es de otro conteo ({codigoArchivo}). Descargá la hoja de {codigoEsperado} desde este mismo conteo.");
 
             // La ubicación viaja por FILA (columna oculta 2), no en el encabezado — cada
-            // fila puede ser de una ubicación distinta, porque la hoja se arma por producto
-            // y no por ubicación única.
-            var contados = new List<(int ProductoId, int UbicacionId, int Cantidad)>();
+            // fila puede ser de una ubicación distinta, porque la hoja se arma por producto.
+            var contados = new Dictionary<(int, int), int>();
             var fila = FilaEncabezado + 1;
             while (!hoja.Cell(fila, 1).IsEmpty())
             {
                 var celdaCantidad = hoja.Cell(fila, ColumnasExcel);
                 if (!celdaCantidad.IsEmpty())
                 {
-                    var productoId = hoja.Cell(fila, 1).GetValue<int>();
-                    var ubicacionId = hoja.Cell(fila, 2).GetValue<int>();
-                    var cantidad = celdaCantidad.GetValue<int>();
-                    if (cantidad < 0)
-                        throw new ArchivoInvalidoException($"La cantidad contada en la fila {fila} no puede ser negativa.");
-                    contados.Add((productoId, ubicacionId, cantidad));
+                    if (!hoja.Cell(fila, 1).TryGetValue<int>(out var productoId) || !hoja.Cell(fila, 2).TryGetValue<int>(out var ubicacionId))
+                        throw new ArchivoInvalidoException($"La fila {fila} no tiene los identificadores de la hoja generada por el sistema.");
+
+                    // TryGetValue<int> redondea 3.5 a 4 en silencio: se pide un entero exacto.
+                    if (!celdaCantidad.TryGetValue<double>(out var cantidad) || cantidad != Math.Floor(cantidad))
+                        throw new ArchivoInvalidoException($"La cantidad contada de la fila {fila} debe ser un número entero.");
+                    if (cantidad < 0 || cantidad > MaxCantidadContada)
+                        throw new ArchivoInvalidoException($"La cantidad contada de la fila {fila} debe estar entre 0 y {MaxCantidadContada:N0}.");
+
+                    contados[(productoId, ubicacionId)] = (int)cantidad;
                 }
                 fila++;
             }
@@ -284,24 +474,256 @@ public class ConteoService : IConteoService
             if (contados.Count == 0)
                 throw new ArchivoInvalidoException("No se cargó ninguna cantidad contada en el archivo.");
 
-            var conDiferencia = new List<ConteoDto>();
-            foreach (var (productoId, ubicacionId, cantidad) in contados)
-            {
-                var ultimoNumero = await _db.Conteos
-                    .Where(c => c.SesionConteo == sesionConteo && c.ProductoId == productoId && c.UbicacionId == ubicacionId)
-                    .OrderByDescending(c => c.NumeroConteo)
-                    .Select(c => (int?)c.NumeroConteo)
-                    .FirstOrDefaultAsync(ct);
-
-                var registrado = await RegistrarAsync(
-                    new RegistrarConteoDto(sesionConteo, productoId, ubicacionId, (ultimoNumero ?? 0) + 1, cantidad),
-                    paisId, usuario, ct);
-
-                if (registrado.Diferencia != 0)
-                    conDiferencia.Add(registrado);
-            }
-
-            return new ImportarHojaConteoResultadoDto(sesionConteo, contados.Count, conDiferencia);
+            return contados;
         }
+    }
+
+    // ---------------------------------------------------------------- evidencia
+
+    public async Task<ConteoEvidenciaDto> AdjuntarEvidenciaAsync(int id, string nombreArchivo, byte[] datos, int paisId, UsuarioActuante usuario, CancellationToken ct)
+    {
+        var codigo = await CodigoAsync(id, paisId, ct);
+
+        var evidencia = await EnCursoAsync(id, paisId, async () =>
+        {
+            var e = await AgregarEvidenciaAsync(id, nombreArchivo, datos, usuario, ct);
+            await _db.SaveChangesAsync(ct);
+            return e;
+        }, ct);
+
+        await _auditoria.RegistrarAsync(nameof(SesionConteo), codigo, "Adjuntar evidencia", null,
+            _auditoria.Capturar(new { evidencia.NombreArchivo, evidencia.ContentType, evidencia.TamanoBytes }),
+            paisId, usuario, null, ct);
+
+        return new ConteoEvidenciaDto(evidencia.Id, evidencia.NombreArchivo, evidencia.ContentType, evidencia.TamanoBytes, evidencia.SubidoPorNombre, evidencia.FechaSubida);
+    }
+
+    // No hace SaveChanges: lo guarda quien llama, dentro de su transacción.
+    private async Task<SesionConteoEvidencia> AgregarEvidenciaAsync(int sesionId, string nombreArchivo, byte[] datos, UsuarioActuante usuario, CancellationToken ct)
+    {
+        if (datos.Length == 0)
+            throw new ArchivoInvalidoException("El archivo está vacío.");
+        if (datos.Length > MaxBytesEvidencia)
+            throw new ArchivoInvalidoException("El archivo no puede superar los 10 MB.");
+
+        var nombre = Path.GetFileName(nombreArchivo ?? string.Empty).Trim();
+        if (nombre.Length == 0) nombre = "evidencia";
+        if (nombre.Length > MaxLargoNombreArchivo)
+        {
+            var ext = Path.GetExtension(nombre);
+            nombre = nombre[..(MaxLargoNombreArchivo - ext.Length)] + ext;
+        }
+
+        var contentType = DetectarTipo(datos, nombre)
+            ?? throw new ArchivoInvalidoException("Formato no admitido. Subí una foto (JPG, PNG, WEBP), un PDF o un Excel (.xlsx).");
+
+        var cantidad = await _db.SesionConteoEvidencias.CountAsync(e => e.SesionConteoId == sesionId, ct);
+        if (cantidad >= MaxEvidenciasPorConteo)
+            throw new ConteoInvalidoException($"Un conteo admite hasta {MaxEvidenciasPorConteo} archivos de evidencia.");
+
+        var evidencia = new SesionConteoEvidencia
+        {
+            SesionConteoId = sesionId,
+            NombreArchivo = nombre,
+            ContentType = contentType,
+            TamanoBytes = datos.Length,
+            Datos = datos,
+            SubidoPorId = usuario.Id,
+            SubidoPorNombre = usuario.Nombre,
+            FechaSubida = DateTime.UtcNow,
+        };
+        _db.SesionConteoEvidencias.Add(evidencia);
+        return evidencia;
+    }
+
+    // El tipo se decide por los PRIMEROS BYTES del archivo, nunca por el Content-Type que
+    // manda el cliente: un .exe renombrado a .png no debe entrar como imagen.
+    private static string? DetectarTipo(byte[] d, string nombre)
+    {
+        if (d.Length >= 8 && d[0] == 0x89 && d[1] == 0x50 && d[2] == 0x4E && d[3] == 0x47 && d[4] == 0x0D && d[5] == 0x0A && d[6] == 0x1A && d[7] == 0x0A)
+            return "image/png";
+        if (d.Length >= 3 && d[0] == 0xFF && d[1] == 0xD8 && d[2] == 0xFF)
+            return "image/jpeg";
+        if (d.Length >= 12 && d[0] == 'R' && d[1] == 'I' && d[2] == 'F' && d[3] == 'F' && d[8] == 'W' && d[9] == 'E' && d[10] == 'B' && d[11] == 'P')
+            return "image/webp";
+        if (d.Length >= 5 && d[0] == '%' && d[1] == 'P' && d[2] == 'D' && d[3] == 'F' && d[4] == '-')
+            return "application/pdf";
+        if (d.Length >= 4 && d[0] == 0x50 && d[1] == 0x4B && d[2] == 0x03 && d[3] == 0x04
+            && nombre.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+            return ContentTypeXlsx;
+        return null;
+    }
+
+    public async Task EliminarEvidenciaAsync(int id, int evidenciaId, int paisId, UsuarioActuante usuario, CancellationToken ct)
+    {
+        var codigo = await CodigoAsync(id, paisId, ct);
+
+        var nombre = await EnCursoAsync(id, paisId, async () =>
+        {
+            var e = await _db.SesionConteoEvidencias.FirstOrDefaultAsync(x => x.Id == evidenciaId && x.SesionConteoId == id, ct)
+                ?? throw new ConteoNoEncontradoException(id);
+            _db.SesionConteoEvidencias.Remove(e);
+            await _db.SaveChangesAsync(ct);
+            return e.NombreArchivo;
+        }, ct);
+
+        await _auditoria.RegistrarAsync(nameof(SesionConteo), codigo, "Eliminar evidencia",
+            _auditoria.Capturar(new { NombreArchivo = nombre }), null, paisId, usuario, null, ct);
+    }
+
+    public async Task<(byte[] Datos, string ContentType, string NombreArchivo)> ObtenerEvidenciaAsync(int id, int evidenciaId, int paisId, CancellationToken ct)
+    {
+        var e = await _db.SesionConteoEvidencias.AsNoTracking()
+            .Where(x => x.Id == evidenciaId && x.SesionConteoId == id && x.SesionConteo!.PaisId == paisId)
+            .Select(x => new { x.Datos, x.ContentType, x.NombreArchivo })
+            .FirstOrDefaultAsync(ct)
+            ?? throw new ConteoNoEncontradoException(id);
+        return (e.Datos, e.ContentType, e.NombreArchivo);
+    }
+
+    // ---------------------------------------------------------------- cerrar / cancelar
+
+    public async Task<ConteoDetalleDto> CerrarAsync(int id, int paisId, UsuarioActuante usuario, CancellationToken ct)
+    {
+        var ahora = DateTime.UtcNow;
+
+        // Una sola sentencia atómica: las condiciones (en curso, con evidencia, todo contado)
+        // se evalúan en el mismo UPDATE que cambia el estado. Así ni dos cierres simultáneos
+        // ni un cierre contra una carga de cantidades pueden colarse entre "chequear" y "cerrar".
+        var filas = await _db.SesionesConteo
+            .Where(s => s.Id == id && s.PaisId == paisId && s.Estado == EstadoConteo.EnCurso
+                && s.Evidencias.Any() && !s.Lineas.Any(l => l.CantidadContada == null))
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(s => s.Estado, EstadoConteo.Cerrado)
+                .SetProperty(s => s.FechaCierre, ahora)
+                .SetProperty(s => s.CerradoPorId, usuario.Id)
+                .SetProperty(s => s.CerradoPorNombre, usuario.Nombre), ct);
+
+        if (filas == 0)
+        {
+            var estado = await _db.SesionesConteo.AsNoTracking()
+                .Where(s => s.Id == id && s.PaisId == paisId)
+                .Select(s => new
+                {
+                    s.Codigo, s.Estado,
+                    Evidencias = s.Evidencias.Count(),
+                    SinContar = s.Lineas.Count(l => l.CantidadContada == null),
+                })
+                .FirstOrDefaultAsync(ct)
+                ?? throw new ConteoNoEncontradoException(id);
+
+            if (estado.Estado != EstadoConteo.EnCurso)
+                throw new ConteoEstadoInvalidoException($"El conteo {estado.Codigo} ya está {TextoEstado(estado.Estado)}.");
+            if (estado.SinContar > 0)
+                throw new ConteoEstadoInvalidoException($"Faltan {estado.SinContar} línea(s) por contar. Cargá todas las cantidades (un 0 también cuenta) antes de cerrar.");
+            throw new ConteoEstadoInvalidoException("Adjuntá al menos un archivo de evidencia (foto del documento físico, PDF o Excel) antes de cerrar el conteo.");
+        }
+
+        var detalle = await ObtenerAsync(id, paisId, ct);
+        await _auditoria.RegistrarAsync(nameof(SesionConteo), detalle.Resumen.Codigo, "Cerrar",
+            _auditoria.Capturar(new { Estado = EstadoConteo.EnCurso }),
+            _auditoria.Capturar(new { detalle.Resumen.Estado, detalle.Resumen.LineasConDiferencia, Evidencias = detalle.Resumen.CantidadEvidencias }),
+            paisId, usuario, null, ct);
+        return detalle;
+    }
+
+    public async Task<ConteoDetalleDto> CancelarAsync(int id, CancelarConteoDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
+    {
+        var motivo = (dto.Motivo ?? string.Empty).Trim();
+        if (motivo.Length < 3)
+            throw new ConteoInvalidoException("Indicá el motivo de la cancelación.");
+        if (motivo.Length > 500)
+            throw new ConteoInvalidoException("El motivo no puede superar los 500 caracteres.");
+
+        var ahora = DateTime.UtcNow;
+        var filas = await _db.SesionesConteo
+            .Where(s => s.Id == id && s.PaisId == paisId && s.Estado == EstadoConteo.EnCurso)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(s => s.Estado, EstadoConteo.Cancelado)
+                .SetProperty(s => s.MotivoCancelacion, motivo)
+                .SetProperty(s => s.FechaCierre, ahora)
+                .SetProperty(s => s.CerradoPorId, usuario.Id)
+                .SetProperty(s => s.CerradoPorNombre, usuario.Nombre), ct);
+
+        if (filas == 0)
+            await LanzarPorEstadoAsync(id, paisId, ct);
+
+        var detalle = await ObtenerAsync(id, paisId, ct);
+        await _auditoria.RegistrarAsync(nameof(SesionConteo), detalle.Resumen.Codigo, "Cancelar",
+            _auditoria.Capturar(new { Estado = EstadoConteo.EnCurso }),
+            _auditoria.Capturar(new { detalle.Resumen.Estado }), paisId, usuario, motivo, ct);
+        return detalle;
+    }
+
+    // ---------------------------------------------------------------- helpers
+
+    // Ejecuta una modificación sobre un conteo EN CURSO. Primero toma el candado de la fila
+    // con un UPDATE que solo matchea si sigue en curso: si otro pidió cerrarlo antes, esto
+    // da 0 filas y se rechaza; si el cierre llega después, espera a que esta transacción
+    // termine. Sin esto, se podría guardar una cantidad DESPUÉS de cerrado.
+    private async Task<T> EnCursoAsync<T>(int id, int paisId, Func<Task<T>> accion, CancellationToken ct)
+    {
+        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+
+        var bloqueadas = await _db.SesionesConteo
+            .Where(s => s.Id == id && s.PaisId == paisId && s.Estado == EstadoConteo.EnCurso)
+            .ExecuteUpdateAsync(u => u.SetProperty(s => s.Estado, EstadoConteo.EnCurso), ct);
+        if (bloqueadas == 0)
+            await LanzarPorEstadoAsync(id, paisId, ct);
+
+        var resultado = await accion();
+        await tx.CommitAsync(ct);
+        return resultado;
+    }
+
+    // Se llama cuando una operación sobre un conteo EN CURSO no encontró filas: distingue
+    // "no existe" (404) de "ya no está en curso" (409). Siempre lanza.
+    private async Task LanzarPorEstadoAsync(int id, int paisId, CancellationToken ct)
+    {
+        var s = await _db.SesionesConteo.AsNoTracking()
+            .Where(x => x.Id == id && x.PaisId == paisId)
+            .Select(x => new { x.Codigo, x.Estado })
+            .FirstOrDefaultAsync(ct)
+            ?? throw new ConteoNoEncontradoException(id);
+        throw new ConteoEstadoInvalidoException($"El conteo {s.Codigo} ya está {TextoEstado(s.Estado)}: no se puede modificar.");
+    }
+
+    private static string TextoEstado(EstadoConteo estado) => estado switch
+    {
+        EstadoConteo.Cerrado => "cerrado",
+        EstadoConteo.Cancelado => "cancelado",
+        _ => "en curso",
+    };
+
+    private Task<string> CodigoAsync(int id, CancellationToken ct) =>
+        _db.SesionesConteo.AsNoTracking().Where(s => s.Id == id).Select(s => s.Codigo).FirstAsync(ct);
+
+    private async Task<string> CodigoAsync(int id, int paisId, CancellationToken ct) =>
+        await _db.SesionesConteo.AsNoTracking().Where(s => s.Id == id && s.PaisId == paisId).Select(s => s.Codigo).FirstOrDefaultAsync(ct)
+        ?? throw new ConteoNoEncontradoException(id);
+
+    // Existencia por (producto, ubicación) sumando CantidadEfectiva, igual que el resto del
+    // sistema — el stock nunca se guarda, siempre se calcula.
+    private async Task<Dictionary<(int ProductoId, int UbicacionId), int>> ExistenciasPorUbicacionAsync(
+        List<int> productoIds, bool soloConStock, CancellationToken ct)
+    {
+        var consulta = _db.Movimientos.AsNoTracking()
+            .Where(m => productoIds.Contains(m.ProductoId))
+            .GroupBy(m => new { m.ProductoId, m.UbicacionId })
+            .Select(g => new { g.Key.ProductoId, g.Key.UbicacionId, Existencia = g.Sum(m => m.CantidadEfectiva) });
+
+        var filas = await consulta.ToListAsync(ct);
+        return filas
+            .Where(f => !soloConStock || f.Existencia > 0)
+            .ToDictionary(f => (f.ProductoId, f.UbicacionId), f => f.Existencia);
+    }
+
+    private static string? NormalizarTexto(string? valor, int maximo, string campo)
+    {
+        var texto = valor?.Trim();
+        if (string.IsNullOrEmpty(texto)) return null;
+        if (texto.Length > maximo)
+            throw new ConteoInvalidoException($"{campo} no puede superar los {maximo} caracteres.");
+        return texto;
     }
 }
