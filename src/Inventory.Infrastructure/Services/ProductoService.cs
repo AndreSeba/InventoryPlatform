@@ -20,12 +20,12 @@ public class ProductoService : IProductoService
     }
 
     // Misma forma de objeto para "antes" y "después" — así el frontend puede diffear
-    // campo por campo. Nunca los bytes de la imagen (ImagenData): infla la auditoría con
-    // base64 sin aportar nada legible, alcanza con saber si tenía una.
+    // campo por campo. Nunca los bytes de la imagen: infla la auditoría con base64 sin
+    // aportar nada legible, alcanza con saber si tenía una.
     private static object Snapshot(Producto p) => new
     {
         p.ClaveProducto, p.CodigoProducto, p.Nombre, p.CategoriaId, p.UnidadMedida,
-        p.CostoUnitario, p.StockMinimo, p.Detalle, TieneImagen = p.ImagenData is not null, p.Activo,
+        p.CostoUnitario, p.StockMinimo, p.Detalle, p.TieneImagen, p.Activo,
     };
 
     public async Task<IReadOnlyList<ProductoDto>> ListarAsync(int paisId, int? categoriaId, bool incluirInactivos, CancellationToken ct)
@@ -124,8 +124,10 @@ public class ProductoService : IProductoService
             CostoUnitario = dto.CostoUnitario,
             StockMinimo = dto.StockMinimo,
             Detalle = dto.Detalle,
-            ImagenData = dto.ImagenData,
-            ImagenContentType = dto.ImagenData is not null ? dto.ImagenContentType : null,
+            TieneImagen = dto.ImagenData is not null,
+            Imagen = dto.ImagenData is not null
+                ? new ProductoImagen { Datos = dto.ImagenData, ContentType = dto.ImagenContentType! }
+                : null,
             Activo = true,
         };
 
@@ -192,8 +194,16 @@ public class ProductoService : IProductoService
         if (dto.ImagenData is not null)
         {
             ValidarImagen(dto.ImagenData, dto.ImagenContentType);
-            producto.ImagenData = dto.ImagenData;
-            producto.ImagenContentType = dto.ImagenContentType;
+
+            var imagen = await _db.ProductoImagenes.FirstOrDefaultAsync(i => i.ProductoId == id, ct);
+            if (imagen is null)
+                _db.ProductoImagenes.Add(new ProductoImagen { ProductoId = id, Datos = dto.ImagenData, ContentType = dto.ImagenContentType! });
+            else
+            {
+                imagen.Datos = dto.ImagenData;
+                imagen.ContentType = dto.ImagenContentType!;
+            }
+            producto.TieneImagen = true;
         }
 
         await _db.SaveChangesAsync(ct);
@@ -220,14 +230,15 @@ public class ProductoService : IProductoService
 
     public async Task<(byte[] Datos, string ContentType)> ObtenerImagenAsync(int id, CancellationToken ct)
     {
-        var producto = await _db.Productos.AsNoTracking()
-            .Select(p => new { p.Id, p.ImagenData, p.ImagenContentType })
-            .FirstOrDefaultAsync(p => p.Id == id, ct);
+        var imagen = await _db.ProductoImagenes.AsNoTracking()
+            .Where(i => i.ProductoId == id)
+            .Select(i => new { i.Datos, i.ContentType })
+            .FirstOrDefaultAsync(ct);
 
-        if (producto?.ImagenData is null)
+        if (imagen is null)
             throw new ProductoNoEncontradoException(id);
 
-        return (producto.ImagenData, producto.ImagenContentType ?? "application/octet-stream");
+        return (imagen.Datos, imagen.ContentType);
     }
 
     // Usado por Movimientos (Salida/Ajuste negativo) y por Conteo físico para no dejar
@@ -334,7 +345,7 @@ public class ProductoService : IProductoService
         p.Id, p.ClaveProducto, p.CodigoProducto, p.Nombre, p.CategoriaId, categoria.CodigoCategoria,
         p.PaisId, pais.Nombre,
         p.UnidadMedida, p.CostoUnitario, p.StockMinimo, p.Detalle,
-        p.ImagenData is not null ? $"/api/productos/{p.Id}/imagen" : null,
+        p.TieneImagen ? $"/api/productos/{p.Id}/imagen" : null,
         p.Activo, existencia, proximoVencimiento
     );
 }

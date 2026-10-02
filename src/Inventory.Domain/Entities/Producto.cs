@@ -24,11 +24,13 @@ public class Producto
     public int StockMinimo { get; set; }
     public string? Detalle { get; set; }
 
-    // Guardada en la fila, no en disco — evita que la imagen dependa de un archivo que
-    // solo existe en la máquina donde se subió (ver AlmacenamientoImagenesService, ya no
-    // existe). Se sirve vía GET /api/productos/{id}/imagen, nunca se expone cruda.
-    public byte[]? ImagenData { get; set; }
-    public string? ImagenContentType { get; set; }
+    // Guardada en la base, no en disco — evita que la imagen dependa de un archivo que
+    // solo existe en la máquina donde se subió. Se sirve vía GET /api/productos/{id}/imagen,
+    // nunca se expone cruda. Los bytes están en ProductoImagen (tabla aparte, ver ahí por
+    // qué); TieneImagen es el flag barato para saber si hay una sin cargarla — lo mantiene
+    // ProductoService al crear/actualizar.
+    public bool TieneImagen { get; set; }
+    public ProductoImagen? Imagen { get; set; }
 
     public bool Activo { get; set; } = true;
 

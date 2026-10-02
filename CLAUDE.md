@@ -127,6 +127,23 @@ Auditoria            → log genérico (UsuarioId (FK a Usuario) + UsuarioNombre
 - No hay campo de imagen múltiple por producto (`ImagenUrl` es una sola URL en `Producto`).
 - No hay `FechaVencimiento` en `Producto` — si hace falta control de vencimiento, es una decisión de producto a tomar explícitamente (una guía SharePoint de referencia lo tenía, se descartó al adaptar el modelo real).
 
+### La foto del producto vive en su propia tabla (2026-10-02)
+
+`ProductoImagen` (PK = `ProductoId`, `Datos`, `ContentType`) reemplaza a las columnas
+`Producto.ImagenData`/`ImagenContentType`. **No las vuelvas a meter en `Producto`**: casi
+toda consulta que carga un `Producto` (Movimientos, Solicitudes, Conteos, listados) lo hace
+por nombre/código, y con la foto adentro cada una arrastraba ~250 KB por producto desde SQL
+(con ~500 productos, ~125 MB por listado → pantallas de "Cargando…" de varios segundos).
+Se midió: `/api/productos` pasó de 0,85 s a ~0,02 s con 82 productos, misma respuesta.
+
+- `Producto.TieneImagen` (bool persistido) dice si hay foto sin leerla; lo mantiene
+  `ProductoService` al crear/actualizar. `ProductoDto.ImagenUrl` sale de ahí.
+- Los bytes solo se leen en `ObtenerImagenAsync` (`GET /api/productos/{id}/imagen`) y se
+  escriben en `CrearAsync`/`ActualizarAsync`. Nunca hagas `Include(p => p.Imagen)` en un listado.
+- Migración `SepararImagenDeProducto`: **copia** las fotos a la tabla nueva antes de borrar
+  las columnas (EF la generó como DropColumn + CreateTable, que las perdía — se reescribió).
+  Mueve todas las fotos de la base, así que conviene tener un backup antes de aplicarla.
+
 ### Editar/eliminar Categoría y Área (agregado 2026-09-15, D6 reabierta parcialmente)
 
 `CategoriaService`/`AreaService` ahora tienen `ActualizarAsync(id, dto, ct)` — `dto` lleva

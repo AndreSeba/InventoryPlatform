@@ -14,6 +14,7 @@ public class InventoryDbContext : DbContext
     public DbSet<Area> Areas => Set<Area>();
     public DbSet<Ubicacion> Ubicaciones => Set<Ubicacion>();
     public DbSet<Producto> Productos => Set<Producto>();
+    public DbSet<ProductoImagen> ProductoImagenes => Set<ProductoImagen>();
     public DbSet<Movimiento> Movimientos => Set<Movimiento>();
     public DbSet<Solicitud> Solicitudes => Set<Solicitud>();
     public DbSet<SolicitudDetalle> SolicitudDetalles => Set<SolicitudDetalle>();
