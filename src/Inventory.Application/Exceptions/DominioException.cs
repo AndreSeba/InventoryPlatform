@@ -1,4 +1,4 @@
-namespace Inventory.Application.Exceptions;
+﻿namespace Inventory.Application.Exceptions;
 
 // Excepción base para errores de negocio esperables (sección 12 de la propuesta):
 // el handler global las traduce a una respuesta HTTP clara con .Status propio,
@@ -166,6 +166,14 @@ public class CredencialesInvalidasException : DominioException
     public CredencialesInvalidasException() : base("Email o contraseña incorrectos.") { }
 }
 
+public class LoginBloqueadoException : DominioException
+{
+    public override int Status => 429;
+
+    public LoginBloqueadoException(int minutos)
+        : base($"Demasiados intentos fallidos. Esperá {minutos} minuto(s) e intentá de nuevo.") { }
+}
+
 public class UsuarioInactivoException : DominioException
 {
     public override int Status => 403;
@@ -250,4 +258,13 @@ public class AlmacenInvalidoException : DominioException
     public override int Status => 400;
 
     public AlmacenInvalidoException(string mensaje) : base(mensaje) { }
+}
+
+// Dato de entrada inválido (campo vacío, fuera de rango, demasiado largo…): 400 con un
+// mensaje pensado para mostrarse. Preferirla a ArgumentException en los servicios.
+public class ValidacionException : DominioException
+{
+    public override int Status => 400;
+
+    public ValidacionException(string mensaje) : base(mensaje) { }
 }

@@ -1,4 +1,4 @@
-using Inventory.Application.Dtos;
+﻿using Inventory.Application.Dtos;
 using Inventory.Application.Exceptions;
 using Inventory.Application.Interfaces;
 using Inventory.Domain.Entities;
@@ -74,8 +74,33 @@ public class SolicitudService : ISolicitudService
 
     public async Task<SolicitudDto> CrearAsync(CrearSolicitudDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
-        if (dto.Detalles.Count == 0)
+        if (dto.Tipo is not (TipoSolicitud.Entrada or TipoSolicitud.Salida))
+            throw new ValidacionException("El tipo de solicitud debe ser Entrada o Salida.");
+
+        if (dto.Detalles is not { Count: > 0 })
             throw new SolicitudEstadoInvalidoException("Una solicitud necesita al menos una línea.");
+        if (dto.Detalles.Count > 200)
+            throw new ValidacionException("Una solicitud admite hasta 200 líneas.");
+
+        foreach (var d in dto.Detalles)
+        {
+            if (d.CantidadSolicitada is < 1 or > 1_000_000_000)
+                throw new ValidacionException("La cantidad solicitada debe ser un entero entre 1 y 1.000.000.000.");
+
+            if (d.Retorna)
+            {
+                // Mismo criterio que una Salida con préstamo en Movimientos: sin destino y
+                // fecha de retorno no hay nada que reclamar después.
+                if (string.IsNullOrWhiteSpace(d.UbicacionExterna))
+                    throw new ValidacionException("Indicá a dónde va el material en cada línea que retorna.");
+                if (d.UbicacionExterna.Trim().Length > 255)
+                    throw new ValidacionException("La ubicación externa no puede superar los 255 caracteres.");
+                if (d.FechaRetornoEsperada is null)
+                    throw new ValidacionException("Indicá la fecha de retorno esperada en cada línea que retorna.");
+                if (d.FechaRetornoEsperada.Value < DateOnly.FromDateTime(DateTime.Today))
+                    throw new ValidacionException("La fecha de retorno esperada no puede estar en el pasado.");
+            }
+        }
 
         if (dto.Detalles.Select(d => d.ProductoId).Distinct().Count() != dto.Detalles.Count)
             throw new SolicitudEstadoInvalidoException("Un mismo producto no puede repetirse en la misma solicitud.");
@@ -103,14 +128,16 @@ public class SolicitudService : ISolicitudService
             FechaSolicitud = DateTime.UtcNow,
             SolicitadoPorId = usuario.Id,
             SolicitadoPorNombre = usuario.Nombre,
-            NumeroSolicitud = "PENDIENTE",
+            // Provisorio ÚNICO (no "PENDIENTE" fijo): con una constante compartida, dos altas
+            // simultáneas chocaban contra el índice único y una de cada dos daba 500.
+            NumeroSolicitud = "TMP-" + Guid.NewGuid().ToString("N"),
         };
         solicitud.Detalles = dto.Detalles.Select(d => new SolicitudDetalle
         {
             ProductoId = d.ProductoId,
             CantidadSolicitada = d.CantidadSolicitada,
             Retorna = d.Retorna,
-            UbicacionExterna = d.Retorna ? d.UbicacionExterna : null,
+            UbicacionExterna = d.Retorna ? d.UbicacionExterna!.Trim() : null,
             FechaRetornoEsperada = d.Retorna ? d.FechaRetornoEsperada : null,
         }).ToList();
 
@@ -181,7 +208,16 @@ public class SolicitudService : ISolicitudService
 
         var anterior = _auditoria.Capturar(SnapshotEstado(solicitud));
 
-        foreach (var linea in dto.Detalles)
+        // Hay que decidir TODAS las líneas: aprobar "sin líneas" dejaba la solicitud Aprobada
+        // sin cantidades, y de ahí pasaba a Entregada sin haber entregado nada.
+        var lineasDto = dto.Detalles ?? [];
+        if (lineasDto.Select(l => l.SolicitudDetalleId).Distinct().Count() != lineasDto.Count)
+            throw new ValidacionException("Una misma línea no puede venir dos veces.");
+        if (lineasDto.Count != solicitud.Detalles.Count)
+            throw new ValidacionException("Indicá la cantidad aprobada de todas las líneas de la solicitud (0 para no aprobar una).");
+
+        var aprobadas = new Dictionary<SolicitudDetalle, int>();
+        foreach (var linea in lineasDto)
         {
             var detalle = solicitud.Detalles.FirstOrDefault(d => d.Id == linea.SolicitudDetalleId)
                 ?? throw new SolicitudEstadoInvalidoException($"La línea {linea.SolicitudDetalleId} no pertenece a esta solicitud.");
@@ -190,15 +226,35 @@ public class SolicitudService : ISolicitudService
                 throw new SolicitudEstadoInvalidoException(
                     $"La cantidad aprobada para '{detalle.Producto?.Nombre}' no puede superar la solicitada ({detalle.CantidadSolicitada}).");
 
-            detalle.CantidadAprobada = linea.CantidadAprobada;
+            aprobadas[detalle] = linea.CantidadAprobada;
         }
+        if (aprobadas.Values.All(c => c == 0))
+            throw new ValidacionException("No se aprobó ninguna cantidad. Si no corresponde nada, usá «Rechazar».");
+
+        // Pendiente -> Aprobada en un solo UPDATE condicional: si dos personas aprueban a la vez,
+        // solo una lo logra y la otra recibe el error de estado (antes se aprobaba dos veces).
+        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+        var ahora = DateTime.UtcNow;
+        var filas = await _db.Solicitudes
+            .Where(s => s.Id == id && s.Estado == EstadoSolicitud.Pendiente)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(s => s.Estado, EstadoSolicitud.Aprobada)
+                .SetProperty(s => s.AprobadoPorId, usuario.Id)
+                .SetProperty(s => s.AprobadoPorNombre, usuario.Nombre)
+                .SetProperty(s => s.FechaResolucion, ahora), ct);
+        if (filas == 0)
+            throw new SolicitudEstadoInvalidoException("La solicitud ya fue resuelta por otra persona.");
+
+        foreach (var (detalle, cantidad) in aprobadas)
+            detalle.CantidadAprobada = cantidad;
+        await _db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
 
         solicitud.Estado = EstadoSolicitud.Aprobada;
         solicitud.AprobadoPorId = usuario.Id;
         solicitud.AprobadoPorNombre = usuario.Nombre;
-        solicitud.FechaResolucion = DateTime.UtcNow;
+        solicitud.FechaResolucion = ahora;
 
-        await _db.SaveChangesAsync(ct);
         await _auditoria.RegistrarAsync(nameof(Solicitud), solicitud.NumeroSolicitud, "Aprobar", anterior, _auditoria.Capturar(SnapshotEstado(solicitud)), paisId, usuario, null, ct);
 
         return ASolicitudDto(solicitud);
@@ -209,6 +265,10 @@ public class SolicitudService : ISolicitudService
         if (string.IsNullOrWhiteSpace(dto.MotivoRechazo))
             throw new SolicitudEstadoInvalidoException("Una solicitud rechazada requiere motivo de rechazo.");
 
+        var motivo = dto.MotivoRechazo.Trim();
+        if (motivo.Length > 2000)
+            throw new ValidacionException("El motivo de rechazo no puede superar los 2000 caracteres.");
+
         var solicitud = await _db.Solicitudes.Include(s => s.Area).Include(s => s.Detalles).ThenInclude(d => d.Producto)
             .FirstOrDefaultAsync(s => s.Id == id && s.Area!.PaisId == paisId, ct)
             ?? throw new SolicitudNoEncontradaException(id);
@@ -218,14 +278,24 @@ public class SolicitudService : ISolicitudService
 
         var anterior = _auditoria.Capturar(SnapshotEstado(solicitud));
 
+        var ahora = DateTime.UtcNow;
+        var filas = await _db.Solicitudes
+            .Where(s => s.Id == id && s.Estado == EstadoSolicitud.Pendiente)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(s => s.Estado, EstadoSolicitud.Rechazada)
+                .SetProperty(s => s.MotivoRechazo, motivo)
+                .SetProperty(s => s.AprobadoPorId, usuario.Id)
+                .SetProperty(s => s.AprobadoPorNombre, usuario.Nombre)
+                .SetProperty(s => s.FechaResolucion, ahora), ct);
+        if (filas == 0)
+            throw new SolicitudEstadoInvalidoException("La solicitud ya fue resuelta por otra persona.");
+
         solicitud.Estado = EstadoSolicitud.Rechazada;
-        solicitud.MotivoRechazo = dto.MotivoRechazo;
+        solicitud.MotivoRechazo = motivo;
         solicitud.AprobadoPorId = usuario.Id;
         solicitud.AprobadoPorNombre = usuario.Nombre;
-        solicitud.FechaResolucion = DateTime.UtcNow;
-
-        await _db.SaveChangesAsync(ct);
-        await _auditoria.RegistrarAsync(nameof(Solicitud), solicitud.NumeroSolicitud, "Rechazar", anterior, _auditoria.Capturar(SnapshotEstado(solicitud)), paisId, usuario, dto.MotivoRechazo, ct);
+        solicitud.FechaResolucion = ahora;
+        await _auditoria.RegistrarAsync(nameof(Solicitud), solicitud.NumeroSolicitud, "Rechazar", anterior, _auditoria.Capturar(SnapshotEstado(solicitud)), paisId, usuario, motivo, ct);
 
         return ASolicitudDto(solicitud);
     }

@@ -1,4 +1,4 @@
-using ClosedXML.Excel;
+﻿using ClosedXML.Excel;
 using Inventory.Application.Dtos;
 using Inventory.Application.Exceptions;
 using Inventory.Application.Interfaces;
@@ -32,7 +32,7 @@ public class MovimientoService : IMovimientoService
     public Task<MovimientoResultadoDto> RegistrarEntradaAsync(RegistrarEntradaDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct) =>
         EjecutarAsync(async (producto, ubicacion, tx) =>
         {
-            var detalle = await ValidarDetalleParaEntregaAsync(dto.SolicitudDetalleId, dto.Cantidad, ct);
+            var detalle = await ValidarDetalleParaEntregaAsync(dto.SolicitudDetalleId, producto.Id, TipoSolicitud.Entrada, dto.Cantidad, ct);
 
             var movimiento = NuevoMovimiento(producto.Id, TipoMovimiento.Entrada, dto.Cantidad, dto.Cantidad, ubicacion.Id, usuario, dto.Motivo);
             movimiento.SolicitudDetalleId = detalle?.Id;
@@ -54,15 +54,29 @@ public class MovimientoService : IMovimientoService
             if (dto.Cantidad <= 0)
                 throw new ArgumentOutOfRangeException(nameof(dto.Cantidad), "La cantidad debe ser mayor a cero.");
 
+            ValidarTextoOpcional(dto.Motivo, 2000, "El motivo");
+            if (dto.Retorna)
+            {
+                // Un préstamo sin destino ni fecha de retorno no se puede reclamar después.
+                if (string.IsNullOrWhiteSpace(dto.UbicacionExterna))
+                    throw new ValidacionException("Indicá a dónde va el material (ubicación externa) para registrar un préstamo.");
+                if (dto.UbicacionExterna.Trim().Length > 255)
+                    throw new ValidacionException("La ubicación externa no puede superar los 255 caracteres.");
+                if (dto.FechaRetornoEsperada is null)
+                    throw new ValidacionException("Indicá la fecha de retorno esperada del préstamo.");
+                if (dto.FechaRetornoEsperada.Value < DateOnly.FromDateTime(DateTime.Today))
+                    throw new ValidacionException("La fecha de retorno esperada no puede estar en el pasado.");
+            }
+
             var existenciaUbicacion = await CalcularExistenciaEnUbicacionAsync(producto.Id, ubicacion.Id, ct);
             if (dto.Cantidad > existenciaUbicacion)
                 throw new StockInsuficienteException($"{producto.CodigoProducto} en {ubicacion.CodigoUbicacion}", existenciaUbicacion, dto.Cantidad);
 
-            var detalle = await ValidarDetalleParaEntregaAsync(dto.SolicitudDetalleId, dto.Cantidad, ct);
+            var detalle = await ValidarDetalleParaEntregaAsync(dto.SolicitudDetalleId, producto.Id, TipoSolicitud.Salida, dto.Cantidad, ct);
 
             var movimiento = NuevoMovimiento(producto.Id, TipoMovimiento.Salida, dto.Cantidad, -dto.Cantidad, ubicacion.Id, usuario, dto.Motivo);
             movimiento.Retorna = dto.Retorna;
-            movimiento.UbicacionExterna = dto.Retorna ? dto.UbicacionExterna : null;
+            movimiento.UbicacionExterna = dto.Retorna ? dto.UbicacionExterna!.Trim() : null;
             movimiento.FechaRetornoEsperada = dto.Retorna ? dto.FechaRetornoEsperada : null;
             movimiento.SolicitudDetalleId = detalle?.Id;
 
@@ -81,6 +95,11 @@ public class MovimientoService : IMovimientoService
         {
             if (dto.Cantidad <= 0)
                 throw new ArgumentOutOfRangeException(nameof(dto.Cantidad), "La cantidad debe ser mayor a cero.");
+
+            // Un ajuste mueve stock sin documento de respaldo: el motivo es lo único que lo explica.
+            if (string.IsNullOrWhiteSpace(dto.Motivo))
+                throw new ValidacionException("Indicá el motivo del ajuste.");
+            ValidarTextoOpcional(dto.Motivo, 2000, "El motivo");
 
             var tipo = dto.EsPositivo ? TipoMovimiento.AjustePositivo : TipoMovimiento.AjusteNegativo;
             var efectiva = dto.EsPositivo ? dto.Cantidad : -dto.Cantidad;
@@ -117,6 +136,12 @@ public class MovimientoService : IMovimientoService
         // devolución solo puede apuntar a una Salida marcada como préstamo (Retorna=1).
         if (origen.TipoMovimiento != TipoMovimiento.Salida || !origen.Retorna)
             throw new MovimientoOrigenInvalidoException("El movimiento origen debe ser una Salida con Retorna = true.");
+
+        ValidarTextoOpcional(dto.Motivo, 2000, "El motivo");
+
+        // Serializa con cualquier otro movimiento del producto: sin esto, varias devoluciones
+        // simultáneas leen el mismo "ya devuelto" y se aceptan todas (devuelto > prestado).
+        await BloquearProductoAsync(origen.ProductoId, paisId, ct);
 
         var yaDevuelto = await _db.Movimientos
             .Where(m => m.MovimientoOrigenId == origen.Id)
@@ -342,6 +367,11 @@ public class MovimientoService : IMovimientoService
     {
         await using var tx = await _db.Database.BeginTransactionAsync(ct);
 
+        // Candado por producto, tomado ANTES de leer el stock: los movimientos del mismo
+        // producto se hacen de a uno. Sin esto, 40 salidas simultáneas leen todas "hay 10",
+        // se aceptan más de las que entran y el stock queda negativo (check-then-insert).
+        await BloquearProductoAsync(productoId, paisId, ct);
+
         // Filtrando producto Y ubicación por el país de la sesión, ninguno de los dos
         // puede pertenecer a otro país — así se evita de raíz mover stock de un producto
         // de un país a una ubicación de otro, sin necesitar una validación cruzada aparte.
@@ -359,6 +389,22 @@ public class MovimientoService : IMovimientoService
         return new MovimientoResultadoDto(movimiento.Id, movimiento.NumeroMovimiento, "CONFIRMADO", movimiento.FechaMovimiento, existenciaResultante);
     }
 
+    // UPDATE que no cambia nada pero toma el candado exclusivo de la fila hasta que termina
+    // la transacción. 0 filas = el producto no existe, está inactivo o es de otro país.
+    private async Task BloquearProductoAsync(int productoId, int paisId, CancellationToken ct)
+    {
+        var filas = await _db.Productos
+            .Where(p => p.Id == productoId && p.PaisId == paisId && p.Activo)
+            .ExecuteUpdateAsync(u => u.SetProperty(p => p.TieneImagen, p => p.TieneImagen), ct);
+        if (filas == 0) throw new ProductoNoEncontradoException(productoId);
+    }
+
+    private static void ValidarTextoOpcional(string? texto, int maximo, string campo)
+    {
+        if (texto is not null && texto.Trim().Length > maximo)
+            throw new ValidacionException($"{campo} no puede superar los {maximo} caracteres.");
+    }
+
     private static Movimiento NuevoMovimiento(int productoId, TipoMovimiento tipo, int cantidad, int cantidadEfectiva, int ubicacionId, UsuarioActuante usuario, string? motivo) => new()
     {
         ProductoId = productoId,
@@ -370,7 +416,9 @@ public class MovimientoService : IMovimientoService
         RegistradoPorNombre = usuario.Nombre,
         Motivo = motivo,
         FechaMovimiento = DateTime.UtcNow,
-        NumeroMovimiento = "PENDIENTE", // se reemplaza en GuardarConNumeroAsync una vez que hay Id
+        // Provisorio ÚNICO (no una constante compartida): con "PENDIENTE" fijo, dos altas
+        // simultáneas chocan contra el índice único mientras esperan su Id definitivo.
+        NumeroMovimiento = "TMP-" + Guid.NewGuid().ToString("N"), // se reemplaza en GuardarConNumeroAsync
     };
 
     // El número definitivo necesita el Id autogenerado — se guarda en dos pasos,
@@ -388,13 +436,32 @@ public class MovimientoService : IMovimientoService
     // Validación compartida por RegistrarEntradaAsync/RegistrarSalidaAsync cuando el
     // movimiento cierra una línea de Solicitud: la línea debe estar aprobada y la cantidad
     // no puede superar lo que todavía falta entregar (CantidadAprobada - CantidadEntregada).
-    private async Task<SolicitudDetalle?> ValidarDetalleParaEntregaAsync(int? solicitudDetalleId, int cantidad, CancellationToken ct)
+    private async Task<SolicitudDetalle?> ValidarDetalleParaEntregaAsync(int? solicitudDetalleId, int productoId, TipoSolicitud tipoEsperado, int cantidad, CancellationToken ct)
     {
         if (solicitudDetalleId is null) return null;
 
-        var detalle = await _db.SolicitudDetalles.Include(d => d.Solicitud)
-            .FirstOrDefaultAsync(d => d.Id == solicitudDetalleId, ct)
+        var solicitudId = await _db.SolicitudDetalles.Where(d => d.Id == solicitudDetalleId)
+            .Select(d => (int?)d.SolicitudId).FirstOrDefaultAsync(ct)
             ?? throw new SolicitudEstadoInvalidoException($"No existe la línea de solicitud {solicitudDetalleId}.");
+
+        // Candado sobre la SOLICITUD (no sobre la línea): las entregas de una misma solicitud
+        // se hacen de a una, así dos entregas simultáneas de la misma línea no pasan ambas el
+        // control de "lo pendiente", y AcumularEntregaAsync (que lee todas las líneas) no puede
+        // cruzarse con otra entrega de la misma solicitud y trabarse. Orden de candados siempre
+        // producto -> solicitud, así no hay ciclos.
+        await _db.Solicitudes.Where(s => s.Id == solicitudId)
+            .ExecuteUpdateAsync(u => u.SetProperty(s => s.Estado, s => s.Estado), ct);
+
+        var detalle = await _db.SolicitudDetalles.Include(d => d.Solicitud)
+            .FirstAsync(d => d.Id == solicitudDetalleId, ct);
+
+        if (detalle.ProductoId != productoId)
+            throw new SolicitudEstadoInvalidoException("El producto no coincide con el de la línea de la solicitud.");
+
+        if (detalle.Solicitud!.Tipo != tipoEsperado)
+            throw new SolicitudEstadoInvalidoException(tipoEsperado == TipoSolicitud.Salida
+                ? "Esta solicitud es de entrada: se recibe con una entrada, no con una salida."
+                : "Esta solicitud es de salida: se entrega con una salida, no con una entrada.");
 
         if (detalle.CantidadAprobada is null)
             throw new SolicitudEstadoInvalidoException("La línea de solicitud todavía no fue aprobada.");

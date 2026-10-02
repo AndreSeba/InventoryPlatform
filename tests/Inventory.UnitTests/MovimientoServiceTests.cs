@@ -1,4 +1,4 @@
-using Inventory.Application.Dtos;
+﻿using Inventory.Application.Dtos;
 using Inventory.Application.Exceptions;
 using Inventory.Domain.Entities;
 using Inventory.Domain.Enums;
@@ -168,7 +168,7 @@ public class MovimientoServiceTests : IDisposable
         await _service.RegistrarEntradaAsync(new RegistrarEntradaDto(productoId, ubicacionId, 20, null), PaisId, _usuario, default);
 
         var salida = await _service.RegistrarSalidaAsync(
-            new RegistrarSalidaDto(productoId, ubicacionId, 10, "Préstamo evento", true, "Evento Trade Marketing", null, null),
+            new RegistrarSalidaDto(productoId, ubicacionId, 10, "Préstamo evento", true, "Evento Trade Marketing", DateOnly.FromDateTime(DateTime.Today.AddDays(7)), null),
             PaisId, _usuario, default);
 
         var devolucion = await _service.RegistrarDevolucionAsync(
@@ -189,5 +189,51 @@ public class MovimientoServiceTests : IDisposable
 
         await Assert.ThrowsAsync<MovimientoOrigenInvalidoException>(() =>
             _service.RegistrarDevolucionAsync(new RegistrarDevolucionDto(salida.MovimientoId, ubicacionId, 10, null), PaisId, _usuario, default));
+    }
+
+    [Fact]
+    public async Task RegistrarSalida_PrestamoSinDestinoOSinFecha_Rechaza()
+    {
+        var (productoId, ubicacionId) = await CrearProductoYUbicacionAsync();
+        await _service.RegistrarEntradaAsync(new RegistrarEntradaDto(productoId, ubicacionId, 10, null), PaisId, _usuario, default);
+        var manana = DateOnly.FromDateTime(DateTime.Today.AddDays(1));
+
+        await Assert.ThrowsAsync<ValidacionException>(() => _service.RegistrarSalidaAsync(
+            new RegistrarSalidaDto(productoId, ubicacionId, 1, null, true, null, manana, null), PaisId, _usuario, default));
+        await Assert.ThrowsAsync<ValidacionException>(() => _service.RegistrarSalidaAsync(
+            new RegistrarSalidaDto(productoId, ubicacionId, 1, null, true, "Evento", null, null), PaisId, _usuario, default));
+        await Assert.ThrowsAsync<ValidacionException>(() => _service.RegistrarSalidaAsync(
+            new RegistrarSalidaDto(productoId, ubicacionId, 1, null, true, "Evento", DateOnly.FromDateTime(DateTime.Today.AddDays(-1)), null), PaisId, _usuario, default));
+    }
+
+    [Fact]
+    public async Task RegistrarAjuste_SinMotivo_Rechaza()
+    {
+        var (productoId, ubicacionId) = await CrearProductoYUbicacionAsync();
+
+        await Assert.ThrowsAsync<ValidacionException>(() => _service.RegistrarAjusteAsync(
+            new RegistrarAjusteDto(productoId, ubicacionId, 5, true, "   "), PaisId, _usuario, default));
+        await Assert.ThrowsAsync<ValidacionException>(() => _service.RegistrarAjusteAsync(
+            new RegistrarAjusteDto(productoId, ubicacionId, 5, true, new string('x', 2001)), PaisId, _usuario, default));
+    }
+
+    [Fact]
+    public async Task RegistrarSalida_VariasSeguidasNuncaDejanStockNegativo()
+    {
+        var (productoId, ubicacionId) = await CrearProductoYUbicacionAsync();
+        await _service.RegistrarEntradaAsync(new RegistrarEntradaDto(productoId, ubicacionId, 10, null), PaisId, _usuario, default);
+
+        var aceptadas = 0;
+        for (var i = 0; i < 15; i++)
+        {
+            try
+            {
+                await _service.RegistrarSalidaAsync(new RegistrarSalidaDto(productoId, ubicacionId, 1, null, false, null, null, null), PaisId, _usuario, default);
+                aceptadas++;
+            }
+            catch (StockInsuficienteException) { }
+        }
+
+        Assert.Equal(10, aceptadas);
     }
 }
