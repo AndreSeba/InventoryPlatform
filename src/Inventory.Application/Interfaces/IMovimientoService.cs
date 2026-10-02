@@ -11,5 +11,6 @@ public interface IMovimientoService
     Task<IReadOnlyList<MovimientoDto>> ListarPorProductoAsync(int productoId, int paisId, CancellationToken ct);
     Task<IReadOnlyList<MovimientoDto>> ListarAsync(int paisId, DateTime? desde, DateTime? hasta, CancellationToken ct);
     Task<IReadOnlyList<MovimientoDto>> ListarPrestamosPendientesAsync(int paisId, CancellationToken ct);
+    Task<IReadOnlyList<MovimientoDto>> ListarRecientesAsync(int paisId, int cantidad, CancellationToken ct);
     Task<(byte[] Contenido, string NombreArchivo)> GenerarExcelAsync(GenerarMovimientosExcelDto dto, int paisId, CancellationToken ct);
 }

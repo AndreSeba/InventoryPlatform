@@ -167,6 +167,20 @@ public class MovimientoService : IMovimientoService
         return await query.OrderByDescending(m => m.FechaMovimiento).Select(m => AMovimientoDto(m)).ToListAsync(ct);
     }
 
+    // Los N más nuevos, ya cortados en SQL — para el Inicio, que antes bajaba todos los
+    // movimientos y se quedaba con cinco.
+    public async Task<IReadOnlyList<MovimientoDto>> ListarRecientesAsync(int paisId, int cantidad, CancellationToken ct)
+    {
+        return await _db.Movimientos.AsNoTracking().Include(m => m.Producto)
+            .Include(m => m.Ubicacion).ThenInclude(u => u!.Almacen)
+            .Include(m => m.SolicitudDetalle).ThenInclude(sd => sd!.Solicitud)
+            .Where(m => m.Producto!.PaisId == paisId)
+            .OrderByDescending(m => m.FechaMovimiento)
+            .Take(cantidad)
+            .Select(m => AMovimientoDto(m))
+            .ToListAsync(ct);
+    }
+
     // Equivalente a vw_PrestamosPendientes de la guía v4: salidas con Retorna=1 que
     // todavía no tienen ninguna devolución que las cierre por completo.
     public async Task<IReadOnlyList<MovimientoDto>> ListarPrestamosPendientesAsync(int paisId, CancellationToken ct)

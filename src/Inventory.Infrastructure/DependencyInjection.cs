@@ -34,6 +34,7 @@ public static class DependencyInjection
         services.AddScoped<IUbicacionService, UbicacionService>();
         services.AddScoped<IProductoService, ProductoService>();
         services.AddScoped<IMovimientoService, MovimientoService>();
+        services.AddScoped<IResumenService, ResumenService>();
         services.AddScoped<ISolicitudService, SolicitudService>();
         services.AddScoped<IConteoService, ConteoService>();
         services.AddScoped<ISolicitudNotificationService, LoggingSolicitudNotificationService>();
