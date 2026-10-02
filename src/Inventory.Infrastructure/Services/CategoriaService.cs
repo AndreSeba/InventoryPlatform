@@ -1,3 +1,4 @@
+using Inventory.Application;
 using Inventory.Application.Dtos;
 using Inventory.Application.Exceptions;
 using Inventory.Application.Interfaces;
@@ -33,7 +34,8 @@ public class CategoriaService : ICategoriaService
 
     public async Task<CategoriaDto> CrearAsync(CrearCategoriaDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
-        var codigo = dto.CodigoCategoria.Trim().ToUpperInvariant();
+        var codigo = Validacion.Texto(dto.CodigoCategoria, 50, "El código de la categoría").ToUpperInvariant();
+        var descripcion = Validacion.TextoOpcional(dto.Descripcion, 255, "La descripción");
 
         // Único POR PAÍS, no global — dos países pueden repetir un código de categoría.
         var yaExiste = await _db.Categorias.AnyAsync(c => c.PaisId == paisId && c.CodigoCategoria == codigo && c.Activo, ct);
@@ -42,7 +44,7 @@ public class CategoriaService : ICategoriaService
 
         var encargadoNombre = await ResolverEncargadoAsync(dto.EncargadoId, paisId, ct);
 
-        var categoria = new Categoria { CodigoCategoria = codigo, Descripcion = dto.Descripcion, EncargadoId = dto.EncargadoId, PaisId = paisId, Activo = true };
+        var categoria = new Categoria { CodigoCategoria = codigo, Descripcion = descripcion, EncargadoId = dto.EncargadoId, PaisId = paisId, Activo = true };
         _db.Categorias.Add(categoria);
         await _db.SaveChangesAsync(ct);
 
@@ -59,7 +61,8 @@ public class CategoriaService : ICategoriaService
 
         var anterior = _auditoria.Capturar(Snapshot(categoria));
 
-        var codigo = dto.CodigoCategoria.Trim().ToUpperInvariant();
+        var codigo = Validacion.Texto(dto.CodigoCategoria, 50, "El código de la categoría").ToUpperInvariant();
+        var descripcion = Validacion.TextoOpcional(dto.Descripcion, 255, "La descripción");
 
         var yaExiste = await _db.Categorias.AnyAsync(c => c.PaisId == paisId && c.CodigoCategoria == codigo && c.Activo && c.Id != id, ct);
         if (yaExiste)
@@ -68,7 +71,7 @@ public class CategoriaService : ICategoriaService
         var encargadoNombre = await ResolverEncargadoAsync(dto.EncargadoId, paisId, ct);
 
         categoria.CodigoCategoria = codigo;
-        categoria.Descripcion = dto.Descripcion;
+        categoria.Descripcion = descripcion;
         categoria.Activo = dto.Activo;
         categoria.EncargadoId = dto.EncargadoId;
 

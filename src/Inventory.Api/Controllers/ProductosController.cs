@@ -1,4 +1,4 @@
-using Inventory.Api.Security;
+﻿using Inventory.Api.Security;
 using Inventory.Application.Dtos;
 using Inventory.Application.Interfaces;
 using Inventory.Domain.Security;
@@ -127,7 +127,7 @@ public class ProductosController : ControllerBase
     [Authorize(Policy = Permisos.ProductosVer)]
     [ProducesResponseType(typeof(IReadOnlyList<UbicacionConExistenciaDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<UbicacionConExistenciaDto>>> ListarUbicaciones(int id, CancellationToken ct)
-        => Ok(await _productoService.ListarUbicacionesConStockAsync(id, ct));
+        => Ok(await _productoService.ListarUbicacionesConStockAsync(id, User.ObtenerPaisId(), ct));
 
     [HttpGet("siguiente-codigo")]
     [Authorize(Policy = Permisos.ProductosCrear)]

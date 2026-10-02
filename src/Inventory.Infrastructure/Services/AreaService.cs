@@ -1,3 +1,4 @@
+using Inventory.Application;
 using Inventory.Application.Dtos;
 using Inventory.Application.Exceptions;
 using Inventory.Application.Interfaces;
@@ -30,14 +31,15 @@ public class AreaService : IAreaService
 
     public async Task<AreaDto> CrearAsync(CrearAreaDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
-        var codigo = dto.CodigoArea.Trim().ToUpperInvariant();
+        var codigo = Validacion.Texto(dto.CodigoArea, 50, "El código del área").ToUpperInvariant();
+        var nombre = Validacion.Texto(dto.NombreArea, 150, "El nombre del área");
 
         // Único POR PAÍS, no global — dos países pueden repetir un código de área.
         var yaExiste = await _db.Areas.AnyAsync(a => a.PaisId == paisId && a.CodigoArea == codigo && a.Activo, ct);
         if (yaExiste)
             throw new CodigoAreaDuplicadoException(codigo);
 
-        var area = new Area { CodigoArea = codigo, NombreArea = dto.NombreArea, PaisId = paisId, Activo = true };
+        var area = new Area { CodigoArea = codigo, NombreArea = nombre, PaisId = paisId, Activo = true };
         _db.Areas.Add(area);
         await _db.SaveChangesAsync(ct);
 
@@ -54,14 +56,15 @@ public class AreaService : IAreaService
 
         var anterior = _auditoria.Capturar(Snapshot(area));
 
-        var codigo = dto.CodigoArea.Trim().ToUpperInvariant();
+        var codigo = Validacion.Texto(dto.CodigoArea, 50, "El código del área").ToUpperInvariant();
+        var nombre = Validacion.Texto(dto.NombreArea, 150, "El nombre del área");
 
         var yaExiste = await _db.Areas.AnyAsync(a => a.PaisId == paisId && a.CodigoArea == codigo && a.Activo && a.Id != id, ct);
         if (yaExiste)
             throw new CodigoAreaDuplicadoException(codigo);
 
         area.CodigoArea = codigo;
-        area.NombreArea = dto.NombreArea;
+        area.NombreArea = nombre;
         area.Activo = dto.Activo;
 
         await _db.SaveChangesAsync(ct);

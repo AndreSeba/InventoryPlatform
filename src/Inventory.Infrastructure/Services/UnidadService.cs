@@ -1,3 +1,4 @@
+using Inventory.Application;
 using Inventory.Application.Dtos;
 using Inventory.Application.Exceptions;
 using Inventory.Application.Interfaces;
@@ -32,14 +33,14 @@ public class UnidadService : IUnidadService
 
     public async Task<UnidadDto> CrearAsync(CrearUnidadDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
-        var codigo = dto.CodigoUnidad.Trim().ToUpperInvariant();
+        var codigo = Validacion.Texto(dto.CodigoUnidad, 10, "El código de la unidad").ToUpperInvariant();
 
         // Único POR PAÍS, no global — dos países pueden repetir un código de unidad.
         var yaExiste = await _db.Unidades.AnyAsync(u => u.PaisId == paisId && u.CodigoUnidad == codigo && u.Activo, ct);
         if (yaExiste)
             throw new CodigoUnidadDuplicadoException(codigo);
 
-        var unidad = new Unidad { CodigoUnidad = codigo, Nombre = dto.Nombre.Trim(), PaisId = paisId, Activo = true };
+        var unidad = new Unidad { CodigoUnidad = codigo, Nombre = Validacion.Texto(dto.Nombre, 80, "El nombre de la unidad"), PaisId = paisId, Activo = true };
         _db.Unidades.Add(unidad);
         await _db.SaveChangesAsync(ct);
 
@@ -58,7 +59,7 @@ public class UnidadService : IUnidadService
 
         var anterior = _auditoria.Capturar(Snapshot(unidad));
 
-        unidad.Nombre = dto.Nombre.Trim();
+        unidad.Nombre = Validacion.Texto(dto.Nombre, 80, "El nombre de la unidad");
         unidad.Activo = dto.Activo;
 
         await _db.SaveChangesAsync(ct);

@@ -1,4 +1,4 @@
-using Inventory.Application.Dtos;
+﻿using Inventory.Application.Dtos;
 using Inventory.Application.Exceptions;
 using Inventory.Application.Interfaces;
 using Inventory.Domain.Entities;
@@ -49,7 +49,8 @@ public class ProductoService : IProductoService
     // ya soporta listas chicas — antes se la llamaba con el catálogo entero).
     public async Task<PaginaDto<ProductoDto>> ListarPaginadoAsync(int paisId, int? categoriaId, bool incluirInactivos, string? busqueda, int pagina, int tamanoPagina, CancellationToken ct)
     {
-        pagina = Math.Max(1, pagina);
+        // Topes: una página enorme desbordaba el OFFSET de SQL y daba 500.
+        pagina = Math.Clamp(pagina, 1, 1_000_000);
         tamanoPagina = Math.Clamp(tamanoPagina, 1, 100);
 
         var query = _db.Productos.AsNoTracking().Include(p => p.Categoria).Include(p => p.Pais)
@@ -62,6 +63,7 @@ public class ProductoService : IProductoService
             query = query.Where(p => p.CategoriaId == categoriaId);
 
         var q = busqueda?.Trim();
+        if (q is { Length: > 100 }) q = q[..100]; // un LIKE de miles de caracteres da 500 en SQL
         if (!string.IsNullOrEmpty(q))
             query = query.Where(p => p.Nombre.Contains(q) || p.CodigoProducto.Contains(q));
 
@@ -102,37 +104,63 @@ public class ProductoService : IProductoService
         var pais = await _db.Paises.FirstOrDefaultAsync(p => p.Id == paisId && p.Activo, ct)
             ?? throw new PaisNoEncontradoException(paisId);
 
-        var codigo = await GenerarCodigoAsync(categoria, paisId, ct);
+        var nombre = ValidarCampos(dto.Nombre, dto.CostoUnitario, dto.StockMinimo, dto.Detalle);
         var unidad = await ResolverUnidadAsync(dto.UnidadMedida, paisId, ct);
-        var clave = $"{codigo}-{unidad}"; // regla de la guía v4: Codigo + '-' + Unidad
-
-        // Único por (País, ClaveProducto) — dos países pueden llegar al mismo código.
-        var yaExiste = await _db.Productos.AnyAsync(p => p.PaisId == paisId && p.ClaveProducto == clave && p.Activo, ct);
-        if (yaExiste)
-            throw new CodigoProductoDuplicadoException(clave);
-
         ValidarImagen(dto.ImagenData, dto.ImagenContentType);
 
-        var producto = new Producto
-        {
-            ClaveProducto = clave,
-            CodigoProducto = codigo,
-            Nombre = dto.Nombre,
-            CategoriaId = dto.CategoriaId,
-            PaisId = paisId,
-            UnidadMedida = unidad,
-            CostoUnitario = dto.CostoUnitario,
-            StockMinimo = dto.StockMinimo,
-            Detalle = dto.Detalle,
-            TieneImagen = dto.ImagenData is not null,
-            Imagen = dto.ImagenData is not null
-                ? new ProductoImagen { Datos = dto.ImagenData, ContentType = dto.ImagenContentType! }
-                : null,
-            Activo = true,
-        };
+        // El correlativo se calcula leyendo lo que hay: dos altas simultáneas pueden elegir el
+        // mismo. Se serializan con un candado de aplicación por país (vale hasta el commit); el
+        // índice único (País, ClaveProducto) queda como respaldo y dispara un reintento.
+        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+        if (_db.Database.IsSqlServer())
+            await _db.Database.ExecuteSqlInterpolatedAsync(
+                $"EXEC sp_getapplock @Resource = {"producto-codigo:" + paisId}, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 15000", ct);
 
-        _db.Productos.Add(producto);
-        await _db.SaveChangesAsync(ct);
+        Producto producto;
+        string clave;
+        var intento = 0;
+        while (true)
+        {
+            var codigo = await GenerarCodigoAsync(categoria, paisId, ct);
+            clave = $"{codigo}-{unidad}"; // regla de la guía v4: Codigo + '-' + Unidad
+
+            // Único por (País, ClaveProducto) — dos países pueden llegar al mismo código.
+            if (await _db.Productos.AnyAsync(p => p.PaisId == paisId && p.ClaveProducto == clave && p.Activo, ct))
+                throw new CodigoProductoDuplicadoException(clave);
+
+            producto = new Producto
+            {
+                ClaveProducto = clave,
+                CodigoProducto = codigo,
+                Nombre = nombre,
+                CategoriaId = dto.CategoriaId,
+                PaisId = paisId,
+                UnidadMedida = unidad,
+                CostoUnitario = dto.CostoUnitario,
+                StockMinimo = dto.StockMinimo,
+                Detalle = dto.Detalle?.Trim(),
+                TieneImagen = dto.ImagenData is not null,
+                Imagen = dto.ImagenData is not null
+                    ? new ProductoImagen { Datos = dto.ImagenData, ContentType = dto.ImagenContentType! }
+                    : null,
+                Activo = true,
+            };
+
+            _db.Productos.Add(producto);
+            try
+            {
+                await _db.SaveChangesAsync(ct);
+                break;
+            }
+            catch (DbUpdateException) when (++intento < 8)
+            {
+                _db.ChangeTracker.Clear(); // descarta el producto fallido y reintenta con el siguiente número
+                categoria = await _db.Categorias.AsNoTracking().FirstAsync(c => c.Id == dto.CategoriaId, ct);
+                pais = await _db.Paises.AsNoTracking().FirstAsync(p => p.Id == paisId, ct);
+            }
+        }
+
+        await tx.CommitAsync(ct);
 
         await _auditoria.RegistrarAsync(nameof(Producto), clave, "Crear", null, _auditoria.Capturar(Snapshot(producto)), paisId, usuario, null, ct);
 
@@ -164,6 +192,7 @@ public class ProductoService : IProductoService
             : await _db.Categorias.FirstOrDefaultAsync(c => c.Id == dto.CategoriaId && c.PaisId == paisId && c.Activo, ct)
                 ?? throw new CategoriaNoEncontradaException(dto.CategoriaId);
 
+        var nombreNuevo = ValidarCampos(dto.Nombre, dto.CostoUnitario, dto.StockMinimo, dto.Detalle);
         var valorAnterior = _auditoria.Capturar(Snapshot(producto));
 
         var unidadNueva = await ResolverUnidadAsync(dto.UnidadMedida, paisId, ct);
@@ -183,11 +212,11 @@ public class ProductoService : IProductoService
             producto.UnidadMedida = unidadNueva;
         }
 
-        producto.Nombre = dto.Nombre;
+        producto.Nombre = nombreNuevo;
         producto.CategoriaId = dto.CategoriaId;
         producto.CostoUnitario = dto.CostoUnitario;
         producto.StockMinimo = dto.StockMinimo;
-        producto.Detalle = dto.Detalle;
+        producto.Detalle = dto.Detalle?.Trim();
 
         // null = "no tocar la imagen actual" — evita reenviar los bytes ya guardados
         // solo porque se editó otro campo del producto (ver comentario en el DTO).
@@ -245,10 +274,12 @@ public class ProductoService : IProductoService
     // elegir/generar una fila en una ubicación donde este producto no tiene nada guardado.
     // Mismo criterio de agregación que MovimientoService.CalcularExistenciaEnUbicacionAsync,
     // acá agrupado por TODAS las ubicaciones del producto de una sola pasada.
-    public async Task<IReadOnlyList<UbicacionConExistenciaDto>> ListarUbicacionesConStockAsync(int productoId, CancellationToken ct)
+    public async Task<IReadOnlyList<UbicacionConExistenciaDto>> ListarUbicacionesConStockAsync(int productoId, int paisId, CancellationToken ct)
     {
+        // Filtrado por el país del producto: sin esto, un usuario de Perú veía el stock y
+        // las ubicaciones de un producto de Bolivia con solo conocer su id.
         return await _db.Movimientos.AsNoTracking()
-            .Where(m => m.ProductoId == productoId)
+            .Where(m => m.ProductoId == productoId && m.Producto!.PaisId == paisId)
             .GroupBy(m => new
             {
                 m.UbicacionId, m.Ubicacion!.CodigoUbicacion,
@@ -265,14 +296,46 @@ public class ProductoService : IProductoService
     // Cuenta TODOS los productos de la categoría Y país (activos e inactivos) para que
     // el correlativo nunca retroceda ni se repita si alguno se desactiva — Bolivia y
     // Perú arrancan cada uno su propio conteo, por eso el filtro incluye PaisId.
+    //
+    // El correlativo es el MÁXIMO ya usado con ese prefijo + 1, no la cantidad de productos de
+    // la categoría: dos categorías que comparten las 4 primeras letras (ej. «MKT-MABEL» y
+    // «MKT-CAFE») generaban el mismo código y la segunda ya no podía crear productos. El
+    // prefijo usa solo letras y números, así «MKT-MABEL» -> «MKTM» y «MKT-CAFE» -> «MKTC».
     private async Task<string> GenerarCodigoAsync(Categoria categoria, int paisId, CancellationToken ct)
     {
-        var prefijo = categoria.CodigoCategoria.Length >= 4
-            ? categoria.CodigoCategoria[..4].ToUpperInvariant()
-            : categoria.CodigoCategoria.ToUpperInvariant();
+        var alfanumerico = new string(categoria.CodigoCategoria.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
+        var prefijo = alfanumerico.Length >= 4 ? alfanumerico[..4] : alfanumerico;
+        if (prefijo.Length == 0) prefijo = "PROD";
 
-        var cantidadEnCategoria = await _db.Productos.CountAsync(p => p.CategoriaId == categoria.Id && p.PaisId == paisId, ct);
-        return $"{prefijo}-{(cantidadEnCategoria + 1):D2}";
+        var existentes = await _db.Productos.AsNoTracking()
+            .Where(p => p.PaisId == paisId && p.CodigoProducto.StartsWith(prefijo + "-"))
+            .Select(p => p.CodigoProducto)
+            .ToListAsync(ct);
+
+        var maximo = 0;
+        foreach (var c in existentes)
+            if (int.TryParse(c[(prefijo.Length + 1)..], out var n) && n > maximo)
+                maximo = n;
+
+        return $"{prefijo}-{(maximo + 1):D2}";
+    }
+
+    // Nombre obligatorio y topes que coinciden con las columnas: antes un nombre vacío entraba
+    // y uno largo o un costo negativo terminaban en un 500 de la base.
+    private static string ValidarCampos(string? nombre, decimal? costo, int stockMinimo, string? detalle)
+    {
+        var limpio = (nombre ?? string.Empty).Trim();
+        if (limpio.Length == 0)
+            throw new ValidacionException("El nombre del producto es obligatorio.");
+        if (limpio.Length > 255)
+            throw new ValidacionException("El nombre del producto no puede superar los 255 caracteres.");
+        if (detalle is not null && detalle.Trim().Length > 2000)
+            throw new ValidacionException("El detalle no puede superar los 2000 caracteres.");
+        if (costo is < 0 or > 1_000_000_000m)
+            throw new ValidacionException("El costo unitario debe estar entre 0 y 1.000.000.000.");
+        if (stockMinimo is < 0 or > 1_000_000_000)
+            throw new ValidacionException("El stock mínimo debe estar entre 0 y 1.000.000.000.");
+        return limpio;
     }
 
     private async Task<int> CalcularExistenciaAsync(int productoId, CancellationToken ct)
@@ -336,6 +399,17 @@ public class ProductoService : IProductoService
             throw new ArchivoInvalidoException("La imagen no puede superar los 5 MB.");
         if (contentType is null || !TiposImagenPermitidos.Contains(contentType))
             throw new ArchivoInvalidoException("Formato no permitido. Usá JPG, PNG o WEBP.");
+
+        // El Content-Type lo manda el cliente: se confirma mirando los primeros bytes.
+        var real = datos switch
+        {
+            [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, ..] => "image/png",
+            [0xFF, 0xD8, 0xFF, ..] => "image/jpeg",
+            [(byte)'R', (byte)'I', (byte)'F', (byte)'F', _, _, _, _, (byte)'W', (byte)'E', (byte)'B', (byte)'P', ..] => "image/webp",
+            _ => null,
+        };
+        if (real is null || !string.Equals(real, contentType, StringComparison.OrdinalIgnoreCase))
+            throw new ArchivoInvalidoException("El archivo no es una imagen JPG, PNG o WEBP válida.");
     }
 
     private static ProductoDto AProductoDto(Producto p, int existencia, DateOnly? proximoVencimiento) =>
