@@ -1,4 +1,4 @@
-# InventoryPlatform — CLAUDE.md
+﻿# InventoryPlatform — CLAUDE.md
 
 > Backend de la plataforma de Inventario de Material Promocional (Marketing,
 > Nestlé Bolivia). Lee este archivo antes de tocar código. Si el código pide
@@ -120,7 +120,7 @@ Auditoria            → log genérico (UsuarioId (FK a Usuario) + UsuarioNombre
 - **Una devolución (Entrada con `MovimientoOrigenId`) solo puede apuntar a una Salida con `Retorna=true`**, y la suma de lo ya devuelto + esta devolución no puede superar la cantidad original — validado en `MovimientoService.RegistrarDevolucionAsync`, no solo por CHECK (el CHECK solo cubre `CK_Movimiento_OrigenSoloEntrada`, que la devolución sea de tipo Entrada).
 - **Una Salida ligada a una solicitud** (`SolicitudDetalleId`) exige que la línea ya esté aprobada y no puede superar `CantidadAprobada - CantidadEntregada`.
 - **Solicitud rechazada exige `MotivoRechazo`** — `CK_Solicitud_MotivoRechazo`.
-- **Numeración correlativa en dos pasos**: se inserta con un placeholder, se obtiene el `Id` autogenerado, se actualiza `NumeroMovimiento`/`NumeroSolicitud` con ese Id, segundo `SaveChanges`. No hay tabla de secuencia aparte.
+- **Numeración correlativa en dos pasos**: se inserta con un placeholder, se obtiene el `Id` autogenerado, se actualiza `NumeroMovimiento`/`NumeroSolicitud`/`Codigo` con ese Id, segundo `SaveChanges`. No hay tabla de secuencia aparte. **El placeholder es ÚNICO por alta (`"TMP-" + Guid`), nunca una constante**: con `"PENDIENTE"` fijo, dos altas simultáneas chocaban contra el índice único (1 de cada 2 solicitudes daba 500 con 40 usuarios).
 - **Nunca se borra un movimiento confirmado** — todas las FK hacia `Movimiento` son `DeleteBehavior.Restrict`.
 - **Errores de negocio esperables** (stock insuficiente, ubicación no encontrada, etc.) son subclases de `DominioException` con `.Status` propio — el `ManejadorGlobalDeExcepciones` las traduce a un `ProblemDetails` con ese status y el mensaje real. Cualquier otra excepción se colapsa a 500 "Error interno" genérico, nunca expone `.Message` crudo.
 
@@ -376,6 +376,46 @@ inyectar `IAuditoriaService`, escribir un `Snapshot(Entidad e) => new { ... }` p
 con los campos de negocio (nunca navegaciones, nunca binarios/hashes), llamarlo
 antes y después de mutar, y `RegistrarAsync` después del `SaveChangesAsync` que
 persiste el cambio real.
+
+### Endurecimiento tras las pruebas multiusuario (2026-10-02)
+
+Se simularon 12 roles (varios inventados), 36 usuarios y 40 usuarios virtuales en simultáneo contra una
+base descartable; salieron 54 hallazgos. Estas reglas son el resultado — **no las deshagas**:
+
+- **Candado por producto en TODO movimiento** (`BloquearProductoAsync`): un `UPDATE` que no cambia nada
+  pero toma el candado exclusivo de la fila `Producto` hasta el commit, tomado ANTES de leer el stock.
+  Sin eso el chequeo de stock era "leer y después insertar": 40 salidas simultáneas aceptaban de más y
+  el stock quedaba negativo. Aplica a entradas, salidas, ajustes y devoluciones.
+- **Entregas de una solicitud**: además se bloquea la fila `Solicitud` (orden fijo producto → solicitud,
+  para que no haya ciclos de bloqueo). Se exige que el producto coincida con el de la línea y que el
+  tipo de la solicitud coincida con el del movimiento.
+- **Transiciones de estado atómicas**: aprobar/rechazar una solicitud y cerrar/cancelar un conteo son un
+  único `UPDATE ... WHERE Estado = X` (`ExecuteUpdateAsync`); si afecta 0 filas, otro ya lo resolvió.
+  Aprobar exige decidir **todas** las líneas (0 también es una decisión) y al menos una > 0.
+- **Código de producto**: correlativo = máximo existente con ese prefijo + 1 (no la cantidad), prefijo
+  con solo letras/números, y la alta se serializa por país con `sp_getapplock`. Antes dos categorías con
+  las mismas 4 primeras letras (`MKT-MABEL`/`MKT-CAFE`) se pisaban.
+- **Sesión validada contra el estado actual** (`SesionUsuarioCache`, `OnTokenValidated` en `Program.cs`):
+  un usuario desactivado, o con permisos distintos a los del token, recibe 401 y debe volver a
+  loguearse. Caché de 30 s; `UsuarioService`/`RolService` la invalidan al instante.
+- **Login con bloqueo**: 5 fallos por email en 10 minutos → 429 (`LoginBloqueadoException`). Se cuenta
+  también para emails inexistentes. Está en memoria: con varias instancias de la API habría que moverlo
+  a una caché compartida.
+- **Validación de entrada → 400, nunca 500**: `Validacion.Texto`/`TextoOpcional` y `ValidacionException`.
+  Textos obligatorios sin espacios, con tope = largo de la columna; cantidades 1..1.000.000.000; préstamo
+  con destino y fecha futura; ajuste con motivo; contraseña 8–72 con letra y número; email con formato.
+  Red de seguridad en `ManejadorGlobalDeExcepciones`: un error de SQL Server por truncado/CHECK/clave
+  duplicada/deadlock se devuelve como 400/409.
+- `GET /api/productos/{id}/ubicaciones` filtra por el país del producto (antes filtraba nada).
+- `GET /api/roles` y `/roles/permisos-disponibles` exigen `usuarios.gestionar` **o** `roles.gestionar`
+  (policy `"a|b"` = alguno de los dos, ver `PermisoRequirement`).
+- Las imágenes se validan por sus primeros bytes, no solo por el Content-Type declarado.
+- Nadie puede desactivar su propia cuenta.
+- Al arrancar, la API avisa por log si hay migraciones sin aplicar.
+
+**Decisiones de producto que NO se tomaron** (quedaron como estaban; ver el informe de pruebas): se puede
+aprobar la propia solicitud (sin separación de funciones), se acepta una fecha de vencimiento ya pasada,
+una Entrada libre sin solicitud por API, y la foto del producto se sirve sin autenticación.
 
 ### Más tipos de Ubicación además de Rack/Mueble (consultado 2026-09-14, no implementado)
 

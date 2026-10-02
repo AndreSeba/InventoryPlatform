@@ -1,4 +1,4 @@
-using Inventory.Application.Exceptions;
+﻿using Inventory.Application.Exceptions;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 
@@ -22,6 +22,7 @@ public class ManejadorGlobalDeExcepciones : IExceptionHandler
         {
             DominioException dominioEx => (dominioEx.Status, "Error de negocio", dominioEx.Message),
             ArgumentOutOfRangeException or ArgumentException => (StatusCodes.Status400BadRequest, "Solicitud inválida", exception.Message),
+            _ when ErrorDeBaseConocido(exception) is { } conocido => conocido,
             _ => (StatusCodes.Status500InternalServerError, "Error interno", "Ocurrió un error inesperado. Contactá al administrador si el problema persiste."),
         };
 
@@ -38,5 +39,24 @@ public class ManejadorGlobalDeExcepciones : IExceptionHandler
         }, ct);
 
         return true;
+    }
+
+    // Red de seguridad: si una validación se escapó y la base rechazó el dato (texto más largo
+    // que la columna, regla CHECK, clave duplicada, bloqueo cruzado), es un problema del dato
+    // enviado, no un fallo del servidor. Se identifica por el número de error de SQL Server.
+    private static (int, string, string)? ErrorDeBaseConocido(Exception exception)
+    {
+        var raiz = exception.GetBaseException();
+        if (raiz.GetType().Name != "SqlException") return null;
+
+        var numero = raiz.GetType().GetProperty("Number")?.GetValue(raiz) as int?;
+        return numero switch
+        {
+            2601 or 2627 => (StatusCodes.Status409Conflict, "Error de negocio", "Ya existe un registro con esos datos."),
+            2628 or 8152 => (StatusCodes.Status400BadRequest, "Solicitud inválida", "Algún texto supera el largo permitido."),
+            547 => (StatusCodes.Status400BadRequest, "Solicitud inválida", "Algún dato está fuera de rango o hace referencia a algo que no existe."),
+            1205 => (StatusCodes.Status409Conflict, "Error de negocio", "Otra persona estaba modificando lo mismo en este momento. Intentá de nuevo."),
+            _ => null,
+        };
     }
 }

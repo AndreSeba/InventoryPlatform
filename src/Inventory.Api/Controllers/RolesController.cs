@@ -1,4 +1,4 @@
-using Inventory.Api.Security;
+﻿using Inventory.Api.Security;
 using Inventory.Application.Dtos;
 using Inventory.Application.Interfaces;
 using Inventory.Domain.Security;
@@ -16,11 +16,18 @@ public class RolesController : ControllerBase
 
     public RolesController(IRolService rolService) => _rolService = rolService;
 
+    // Listar roles y ver los permisos disponibles lo necesitan las pantallas de Usuarios (para
+    // asignar un rol) y de Roles. Antes lo podía leer cualquier usuario logueado, incluso uno
+    // sin ningún permiso.
+    private const string VerRoles = Permisos.UsuariosGestionar + "|" + Permisos.RolesGestionar;
+
     [HttpGet]
+    [Authorize(Policy = VerRoles)]
     public async Task<ActionResult<IReadOnlyList<RolDto>>> Listar(CancellationToken ct)
         => Ok(await _rolService.ListarAsync(User.ObtenerPaisId(), ct));
 
     [HttpGet("permisos-disponibles")]
+    [Authorize(Policy = VerRoles)]
     public ActionResult<IReadOnlyList<PermisoDto>> ListarPermisosDisponibles()
         => Ok(_rolService.ListarPermisosDisponibles());
 

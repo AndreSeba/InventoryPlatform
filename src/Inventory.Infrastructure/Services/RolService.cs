@@ -1,10 +1,13 @@
+﻿using Inventory.Application;
 using Inventory.Application.Dtos;
 using Inventory.Application.Exceptions;
 using Inventory.Application.Interfaces;
 using Inventory.Domain.Entities;
 using Inventory.Domain.Security;
 using Inventory.Infrastructure.Persistence;
+using Inventory.Infrastructure.Security;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace Inventory.Infrastructure.Services;
 
@@ -12,11 +15,13 @@ public class RolService : IRolService
 {
     private readonly InventoryDbContext _db;
     private readonly IAuditoriaService _auditoria;
+    private readonly IMemoryCache _cache;
 
-    public RolService(InventoryDbContext db, IAuditoriaService auditoria)
+    public RolService(InventoryDbContext db, IAuditoriaService auditoria, IMemoryCache cache)
     {
         _db = db;
         _auditoria = auditoria;
+        _cache = cache;
     }
 
     // PermisoIds (no códigos): ActualizarAsync no siempre trae Permiso incluido en el
@@ -42,7 +47,8 @@ public class RolService : IRolService
 
     public async Task<RolDto> CrearAsync(CrearRolDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
-        var nombre = dto.Nombre.Trim();
+        var nombre = Validacion.Texto(dto.Nombre, 80, "El nombre del rol");
+        var descripcion = Validacion.TextoOpcional(dto.Descripcion, 300, "La descripción");
 
         var yaExiste = await _db.Roles.AnyAsync(r => r.PaisId == paisId && r.Nombre == nombre && r.Activo, ct);
         if (yaExiste)
@@ -51,7 +57,7 @@ public class RolService : IRolService
         var permisos = await ResolverPermisosAsync(dto.PermisoCodigos, ct);
         var pais = await _db.Paises.FirstOrDefaultAsync(p => p.Id == paisId, ct);
 
-        var rol = new Rol { Nombre = nombre, Descripcion = dto.Descripcion, PaisId = paisId, Activo = true };
+        var rol = new Rol { Nombre = nombre, Descripcion = descripcion, PaisId = paisId, Activo = true };
         rol.RolPermisos = permisos.Select(p => new RolPermiso { Permiso = p }).ToList();
 
         _db.Roles.Add(rol);
@@ -71,16 +77,23 @@ public class RolService : IRolService
 
         var anterior = _auditoria.Capturar(Snapshot(rol));
 
+        var nombreNuevo = Validacion.Texto(dto.Nombre, 80, "El nombre del rol");
+        var descripcionNueva = Validacion.TextoOpcional(dto.Descripcion, 300, "La descripción");
         var permisos = await ResolverPermisosAsync(dto.PermisoCodigos, ct);
 
-        rol.Nombre = dto.Nombre.Trim();
-        rol.Descripcion = dto.Descripcion;
+        rol.Nombre = nombreNuevo;
+        rol.Descripcion = descripcionNueva;
         rol.Activo = dto.Activo;
 
         _db.RolPermisos.RemoveRange(rol.RolPermisos);
         rol.RolPermisos = permisos.Select(p => new RolPermiso { RolId = rol.Id, PermisoId = p.Id }).ToList();
 
         await _db.SaveChangesAsync(ct);
+
+        // Los permisos (o el estado) del rol cambiaron: las sesiones abiertas de sus usuarios
+        // dejan de valer enseguida y tienen que volver a loguearse con los permisos nuevos.
+        foreach (var uid in await _db.Usuarios.Where(u => u.RolId == rol.Id).Select(u => u.Id).ToListAsync(ct))
+            SesionUsuarioCache.Invalidar(_cache, uid);
 
         await _auditoria.RegistrarAsync(nameof(Rol), rol.Id.ToString(), "Actualizar", anterior, _auditoria.Capturar(Snapshot(rol)), paisId, usuario, null, ct);
 

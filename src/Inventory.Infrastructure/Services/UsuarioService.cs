@@ -1,3 +1,6 @@
+﻿using Inventory.Application;
+using Inventory.Infrastructure.Security;
+using Microsoft.Extensions.Caching.Memory;
 using Inventory.Application.Dtos;
 using Inventory.Application.Exceptions;
 using Inventory.Application.Interfaces;
@@ -11,11 +14,13 @@ public class UsuarioService : IUsuarioService
 {
     private readonly InventoryDbContext _db;
     private readonly IAuditoriaService _auditoria;
+    private readonly IMemoryCache _cache;
 
-    public UsuarioService(InventoryDbContext db, IAuditoriaService auditoria)
+    public UsuarioService(InventoryDbContext db, IAuditoriaService auditoria, IMemoryCache cache)
     {
         _db = db;
         _auditoria = auditoria;
+        _cache = cache;
     }
 
     // Nunca PasswordHash acá — auditoría no es lugar para guardar ni un hash.
@@ -35,7 +40,10 @@ public class UsuarioService : IUsuarioService
 
     public async Task<UsuarioDto> CrearAsync(CrearUsuarioDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
-        var email = dto.Email.Trim().ToLowerInvariant();
+        var email = Validacion.Texto(dto.Email, 200, "El email").ToLowerInvariant();
+        if (!System.Net.Mail.MailAddress.TryCreate(email, out var direccion) || direccion.Address != email || !email.Contains('.'))
+            throw new ValidacionException("El email no tiene un formato válido.");
+        var nombreCompleto = Validacion.Texto(dto.NombreCompleto, 150, "El nombre");
 
         // Único POR PAÍS, no global — el mismo email puede existir en otro país.
         var yaExiste = await _db.Usuarios.AnyAsync(u => u.PaisId == paisId && u.Email.ToLower() == email && u.Activo, ct);
@@ -46,15 +54,14 @@ public class UsuarioService : IUsuarioService
             .FirstOrDefaultAsync(r => r.Id == dto.RolId && r.PaisId == paisId && r.Activo, ct)
             ?? throw new RolNoEncontradoException(dto.RolId);
 
-        if (dto.Password.Length < 8)
-            throw new ArgumentOutOfRangeException(nameof(dto.Password), "La contraseña debe tener al menos 8 caracteres.");
+        ValidarPassword(dto.Password);
 
         var pais = await _db.Paises.FirstOrDefaultAsync(p => p.Id == paisId, ct);
 
         var nuevoUsuario = new Usuario
         {
             Email = email,
-            NombreCompleto = dto.NombreCompleto,
+            NombreCompleto = nombreCompleto,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password, workFactor: 12),
             RolId = rol.Id,
             PaisId = paisId,
@@ -79,20 +86,40 @@ public class UsuarioService : IUsuarioService
 
         var anterior = _auditoria.Capturar(Snapshot(entidad));
 
+        var nombreNuevo = Validacion.Texto(dto.NombreCompleto, 150, "El nombre");
+
+        // Sin esto, el último administrador podía dejarse a sí mismo sin acceso.
+        if (entidad.Id == usuario.Id && !dto.Activo)
+            throw new ValidacionException("No podés desactivar tu propia cuenta.");
+
         var rol = await _db.Roles.Include(r => r.RolPermisos).ThenInclude(rp => rp.Permiso)
             .FirstOrDefaultAsync(r => r.Id == dto.RolId && r.PaisId == paisId && r.Activo, ct)
             ?? throw new RolNoEncontradoException(dto.RolId);
 
-        entidad.NombreCompleto = dto.NombreCompleto;
+        entidad.NombreCompleto = nombreNuevo;
         entidad.RolId = rol.Id;
         entidad.Activo = dto.Activo;
 
         await _db.SaveChangesAsync(ct);
 
+        // Que la baja o el cambio de rol valgan YA, no cuando venza la entrada de la caché.
+        SesionUsuarioCache.Invalidar(_cache, entidad.Id);
+
         await _auditoria.RegistrarAsync(nameof(Usuario), entidad.Id.ToString(), "Actualizar", anterior, _auditoria.Capturar(Snapshot(entidad)), paisId, usuario, null, ct);
 
         entidad.Rol = rol;
         return AUsuarioDto(entidad);
+    }
+
+    // 8 a 72 caracteres (BCrypt ignora lo que pasa de 72 bytes) con al menos una letra y un número.
+    private static void ValidarPassword(string? password)
+    {
+        if (string.IsNullOrEmpty(password) || password.Length < 8)
+            throw new ValidacionException("La contraseña debe tener al menos 8 caracteres.");
+        if (password.Length > 72)
+            throw new ValidacionException("La contraseña no puede superar los 72 caracteres.");
+        if (!password.Any(char.IsLetter) || !password.Any(char.IsDigit))
+            throw new ValidacionException("La contraseña debe combinar letras y números.");
     }
 
     private static UsuarioDto AUsuarioDto(Usuario u) => new(

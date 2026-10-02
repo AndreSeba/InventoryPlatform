@@ -1,4 +1,4 @@
-using Inventory.Application.Interfaces;
+﻿using Inventory.Application.Interfaces;
 using Inventory.Infrastructure.Persistence;
 using Inventory.Infrastructure.Security;
 using Inventory.Infrastructure.Services;
@@ -18,6 +18,7 @@ public static class DependencyInjection
         services.AddDbContext<InventoryDbContext>(options =>
             options.UseSqlServer(connectionString));
 
+        services.AddMemoryCache();
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
         services.AddSingleton<JwtTokenService>();
 
