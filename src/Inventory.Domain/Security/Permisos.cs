@@ -58,6 +58,9 @@ public static class Permisos
 
     public const string AuditoriaVer = "auditoria.ver";
 
+    public const string AccesosRevisar = "accesos.revisar";
+    public const string DevolucionesAvisar = "devoluciones.avisar";
+
     public static readonly IReadOnlyList<(string Codigo, string Modulo, string Descripcion)> Catalogo =
     [
         (ProductosVer, "Productos", "Ver el catálogo de productos y su existencia"),
@@ -119,5 +122,11 @@ public static class Permisos
 
         // Agregado 2026-09-22 (auditoría completa), también al final por el mismo motivo.
         (AuditoriaVer, "Auditoría", "Ver el historial de auditoría de todos los módulos"),
+
+        // Agregado 2026-10-06 (revisión periódica de accesos), al final por el mismo motivo.
+        (AccesosRevisar, "Administración", "Abrir y resolver revisiones periódicas de accesos de usuarios"),
+
+        // Agregado 2026-10-06 (avisos de devolución), al final por el mismo motivo.
+        (DevolucionesAvisar, "Movimientos", "Ver el material prestado a nombre propio y avisar su devolución"),
     ];
 }

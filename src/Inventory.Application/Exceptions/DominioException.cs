@@ -130,6 +130,13 @@ public class SolicitudNoEncontradaException : DominioException
         : base($"No existe una solicitud con id {id}.") { }
 }
 
+public class SeparacionDeFuncionesException : DominioException
+{
+    public override int Status => 403;
+
+    public SeparacionDeFuncionesException(string mensaje) : base(mensaje) { }
+}
+
 public class SolicitudEstadoInvalidoException : DominioException
 {
     public override int Status => 409;
@@ -157,6 +164,43 @@ public class ConteoInvalidoException : DominioException
     public override int Status => 400;
 
     public ConteoInvalidoException(string mensaje) : base(mensaje) { }
+}
+
+public class AvisoDevolucionNoEncontradoException : DominioException
+{
+    public override int Status => 404;
+
+    public AvisoDevolucionNoEncontradoException(int id)
+        : base($"No existe un aviso de devolución con id {id}.") { }
+}
+
+public class AvisoDevolucionEstadoInvalidoException : DominioException
+{
+    public override int Status => 409;
+
+    public AvisoDevolucionEstadoInvalidoException(string mensaje) : base(mensaje) { }
+}
+
+public class AvisoDevolucionNoPermitidoException : DominioException
+{
+    public override int Status => 403;
+
+    public AvisoDevolucionNoPermitidoException(string mensaje) : base(mensaje) { }
+}
+
+public class RevisionAccesoNoEncontradaException : DominioException
+{
+    public override int Status => 404;
+
+    public RevisionAccesoNoEncontradaException(int id)
+        : base($"No existe una revisión de accesos con id {id}.") { }
+}
+
+public class RevisionAccesoEstadoInvalidoException : DominioException
+{
+    public override int Status => 409;
+
+    public RevisionAccesoEstadoInvalidoException(string mensaje) : base(mensaje) { }
 }
 
 public class CredencialesInvalidasException : DominioException

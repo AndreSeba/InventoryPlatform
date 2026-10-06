@@ -5,7 +5,9 @@ using Inventory.Application.Interfaces;
 using Inventory.Domain.Entities;
 using Inventory.Domain.Enums;
 using Inventory.Infrastructure.Persistence;
+using Inventory.Infrastructure.Controles;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Inventory.Infrastructure.Services;
 
@@ -13,11 +15,21 @@ public class MovimientoService : IMovimientoService
 {
     private readonly InventoryDbContext _db;
     private readonly IAuditoriaService _auditoria;
+    private readonly ControlesOptions _controles;
 
-    public MovimientoService(InventoryDbContext db, IAuditoriaService auditoria)
+    public MovimientoService(InventoryDbContext db, IAuditoriaService auditoria, IOptions<ControlesOptions>? controles = null)
     {
         _db = db;
         _auditoria = auditoria;
+        _controles = controles?.Value ?? ControlesOptions.Permisivo;
+    }
+
+    // Entrada/salida sin solicitud = material que se mueve "por fuera" y se carga después. Con el
+    // control activo se rechaza; lo que sí corresponde sin solicitud es un ajuste (con motivo).
+    private void ExigirSolicitud(int? solicitudDetalleId, string accion)
+    {
+        if (_controles.ExigirSolicitudEnMovimientos && solicitudDetalleId is null)
+            throw new ValidacionException($"Toda {accion} se registra contra una solicitud aprobada. Si es una corrección de stock, usá un ajuste con motivo.");
     }
 
     // Un Movimiento nunca se edita ni se borra (ver CLAUDE.md) — solo hace falta el
@@ -32,7 +44,8 @@ public class MovimientoService : IMovimientoService
     public Task<MovimientoResultadoDto> RegistrarEntradaAsync(RegistrarEntradaDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct) =>
         EjecutarAsync(async (producto, ubicacion, tx) =>
         {
-            var detalle = await ValidarDetalleParaEntregaAsync(dto.SolicitudDetalleId, producto.Id, TipoSolicitud.Entrada, dto.Cantidad, ct);
+            ExigirSolicitud(dto.SolicitudDetalleId, "entrada");
+            var detalle = await ValidarDetalleParaEntregaAsync(dto.SolicitudDetalleId, producto.Id, TipoSolicitud.Entrada, dto.Cantidad, usuario.Id, ct);
 
             var movimiento = NuevoMovimiento(producto.Id, TipoMovimiento.Entrada, dto.Cantidad, dto.Cantidad, ubicacion.Id, usuario, dto.Motivo);
             movimiento.SolicitudDetalleId = detalle?.Id;
@@ -54,6 +67,7 @@ public class MovimientoService : IMovimientoService
             if (dto.Cantidad <= 0)
                 throw new ArgumentOutOfRangeException(nameof(dto.Cantidad), "La cantidad debe ser mayor a cero.");
 
+            ExigirSolicitud(dto.SolicitudDetalleId, "salida");
             ValidarTextoOpcional(dto.Motivo, 2000, "El motivo");
             if (dto.Retorna)
             {
@@ -72,7 +86,7 @@ public class MovimientoService : IMovimientoService
             if (dto.Cantidad > existenciaUbicacion)
                 throw new StockInsuficienteException($"{producto.CodigoProducto} en {ubicacion.CodigoUbicacion}", existenciaUbicacion, dto.Cantidad);
 
-            var detalle = await ValidarDetalleParaEntregaAsync(dto.SolicitudDetalleId, producto.Id, TipoSolicitud.Salida, dto.Cantidad, ct);
+            var detalle = await ValidarDetalleParaEntregaAsync(dto.SolicitudDetalleId, producto.Id, TipoSolicitud.Salida, dto.Cantidad, usuario.Id, ct);
 
             var movimiento = NuevoMovimiento(producto.Id, TipoMovimiento.Salida, dto.Cantidad, -dto.Cantidad, ubicacion.Id, usuario, dto.Motivo);
             movimiento.Retorna = dto.Retorna;
@@ -143,6 +157,29 @@ public class MovimientoService : IMovimientoService
         // simultáneas leen el mismo "ya devuelto" y se aceptan todas (devuelto > prestado).
         await BloquearProductoAsync(origen.ProductoId, paisId, ct);
 
+        // Aviso del solicitante que esta entrada cierra. Se lee DESPUÉS del candado del producto: dos
+        // recepciones simultáneas del mismo aviso se serializan y la segunda lo encuentra ya resuelto.
+        AvisoDevolucion? aviso = null;
+        if (dto.AvisoDevolucionId is not null)
+        {
+            aviso = await _db.AvisosDevolucion.AsNoTracking()
+                .FirstOrDefaultAsync(a => a.Id == dto.AvisoDevolucionId && a.PaisId == paisId, ct)
+                ?? throw new AvisoDevolucionNoEncontradoException(dto.AvisoDevolucionId.Value);
+            if (aviso.MovimientoOrigenId != origen.Id)
+                throw new MovimientoOrigenInvalidoException("El aviso no corresponde a ese préstamo.");
+            if (aviso.Estado != EstadoAvisoDevolucion.Pendiente)
+                throw new AvisoDevolucionEstadoInvalidoException($"El aviso {aviso.Codigo} ya no está pendiente.");
+            // Separación de funciones: quien avisó que devuelve no es quien registra que lo recibió.
+            if (_controles.SeparacionDeFunciones && aviso.AvisadoPorId == usuario.Id)
+                throw new SeparacionDeFuncionesException("Quien avisó la devolución no puede registrar su recepción: debe hacerlo otra persona.");
+            if (dto.Cantidad > aviso.Cantidad)
+                throw new ValidacionException($"Se avisó la devolución de {aviso.Cantidad} unidad(es): no se puede recibir más que eso contra este aviso.");
+        }
+        else if (_controles.ExigirAvisoEnDevoluciones && origen.SolicitudDetalleId is not null)
+        {
+            throw new ValidacionException("Esta devolución se registra contra un aviso de quien pidió el material: pedile que la avise desde «Mis préstamos».");
+        }
+
         var yaDevuelto = await _db.Movimientos
             .Where(m => m.MovimientoOrigenId == origen.Id)
             .SumAsync(m => (int?)m.Cantidad, ct) ?? 0;
@@ -162,6 +199,30 @@ public class MovimientoService : IMovimientoService
         movimiento.MovimientoOrigenId = origen.Id;
 
         await GuardarConNumeroAsync(movimiento, "MOV", ct);
+
+        if (aviso is not null)
+        {
+            // Transición atómica del aviso a Recibido, ligado a la entrada recién creada. Si 0 filas, otro lo
+            // resolvió (por ejemplo el solicitante lo canceló en este instante): se revierte toda la devolución.
+            var ahora = DateTime.UtcNow;
+            var filas = await _db.AvisosDevolucion
+                .Where(a => a.Id == aviso.Id && a.Estado == EstadoAvisoDevolucion.Pendiente)
+                .ExecuteUpdateAsync(u => u
+                    .SetProperty(a => a.Estado, EstadoAvisoDevolucion.Recibido)
+                    .SetProperty(a => a.FechaResolucion, ahora)
+                    .SetProperty(a => a.ResueltoPorId, usuario.Id)
+                    .SetProperty(a => a.ResueltoPorNombre, usuario.Nombre)
+                    .SetProperty(a => a.CantidadRecibida, dto.Cantidad)
+                    .SetProperty(a => a.MovimientoDevolucionId, movimiento.Id), ct);
+            if (filas == 0)
+                throw new AvisoDevolucionEstadoInvalidoException($"El aviso {aviso.Codigo} ya no está pendiente.");
+
+            await _auditoria.RegistrarAsync(nameof(AvisoDevolucion), aviso.Codigo, "Recibir",
+                _auditoria.Capturar(new { Estado = EstadoAvisoDevolucion.Pendiente, aviso.Cantidad }),
+                _auditoria.Capturar(new { Estado = EstadoAvisoDevolucion.Recibido, CantidadRecibida = dto.Cantidad, Entrada = movimiento.NumeroMovimiento }),
+                paisId, usuario, null, ct);
+        }
+
         await _auditoria.RegistrarAsync(nameof(Movimiento), movimiento.NumeroMovimiento, "RegistrarDevolucion", null, _auditoria.Capturar(Snapshot(movimiento)), paisId, usuario, null, ct);
         await tx.CommitAsync(ct);
 
@@ -436,7 +497,7 @@ public class MovimientoService : IMovimientoService
     // Validación compartida por RegistrarEntradaAsync/RegistrarSalidaAsync cuando el
     // movimiento cierra una línea de Solicitud: la línea debe estar aprobada y la cantidad
     // no puede superar lo que todavía falta entregar (CantidadAprobada - CantidadEntregada).
-    private async Task<SolicitudDetalle?> ValidarDetalleParaEntregaAsync(int? solicitudDetalleId, int productoId, TipoSolicitud tipoEsperado, int cantidad, CancellationToken ct)
+    private async Task<SolicitudDetalle?> ValidarDetalleParaEntregaAsync(int? solicitudDetalleId, int productoId, TipoSolicitud tipoEsperado, int cantidad, int usuarioId, CancellationToken ct)
     {
         if (solicitudDetalleId is null) return null;
 
@@ -457,6 +518,10 @@ public class MovimientoService : IMovimientoService
 
         if (detalle.ProductoId != productoId)
             throw new SolicitudEstadoInvalidoException("El producto no coincide con el de la línea de la solicitud.");
+
+        // Separación de funciones: quien pidió el material no puede ser quien registra su entrega.
+        if (_controles.SeparacionDeFunciones && detalle.Solicitud!.SolicitadoPorId == usuarioId)
+            throw new SeparacionDeFuncionesException("Quien solicitó el material no puede registrar su entrega: debe hacerlo otra persona.");
 
         if (detalle.Solicitud!.Tipo != tipoEsperado)
             throw new SolicitudEstadoInvalidoException(tipoEsperado == TipoSolicitud.Salida

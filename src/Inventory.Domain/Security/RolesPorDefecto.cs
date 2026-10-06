@@ -20,7 +20,7 @@ public static class RolesPorDefecto
         Permisos.InicioVer,
         Permisos.ProductosVer,
         Permisos.MovimientosVer, Permisos.MovimientosEntrada, Permisos.MovimientosSalida,
-        Permisos.MovimientosAjuste, Permisos.MovimientosDevolucion,
+        Permisos.MovimientosAjuste, Permisos.MovimientosDevolucion, Permisos.DevolucionesAvisar,
         Permisos.SolicitudesVer, Permisos.SolicitudesCrear, Permisos.SolicitudesEntregar,
         Permisos.ConteosVer, Permisos.ConteosRegistrar,
         Permisos.CategoriasVer, Permisos.AreasVer, Permisos.UbicacionesVer,
@@ -40,7 +40,7 @@ public static class RolesPorDefecto
     // desde el carrito) — no es que puedan gestionar esos catálogos, solo leerlos.
     public static readonly string[] PermisosSolicitante =
     [
-        Permisos.SolicitudesCrear,
+        Permisos.SolicitudesCrear, Permisos.DevolucionesAvisar,
         Permisos.ProductosVer, Permisos.AreasVer, Permisos.UbicacionesVer,
         Permisos.CategoriasVer, Permisos.UnidadesVer,
     ];

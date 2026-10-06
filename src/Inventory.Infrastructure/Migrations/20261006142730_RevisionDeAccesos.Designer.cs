@@ -4,6 +4,7 @@ using Inventory.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Inventory.Infrastructure.Migrations
 {
     [DbContext(typeof(InventoryDbContext))]
-    partial class InventoryDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261006142730_RevisionDeAccesos")]
+    partial class RevisionDeAccesos
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -178,97 +181,6 @@ namespace Inventory.Infrastructure.Migrations
                     b.HasIndex("PaisId", "FechaHora");
 
                     b.ToTable("Auditoria", (string)null);
-                });
-
-            modelBuilder.Entity("Inventory.Domain.Entities.AvisoDevolucion", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("AvisadoPorId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("AvisadoPorNombre")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("nvarchar(150)");
-
-                    b.Property<int>("Cantidad")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("CantidadRecibida")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Codigo")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<int>("Estado")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("FechaAviso")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime?>("FechaResolucion")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("MotivoCancelacion")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<int?>("MovimientoDevolucionId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("MovimientoOrigenId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Notas")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<int>("PaisId")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("ResueltoPorId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("ResueltoPorNombre")
-                        .HasMaxLength(150)
-                        .HasColumnType("nvarchar(150)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AvisadoPorId");
-
-                    b.HasIndex("Codigo")
-                        .IsUnique();
-
-                    b.HasIndex("MovimientoDevolucionId")
-                        .IsUnique()
-                        .HasFilter("[MovimientoDevolucionId] IS NOT NULL");
-
-                    b.HasIndex("MovimientoOrigenId");
-
-                    b.HasIndex("ResueltoPorId");
-
-                    b.HasIndex("PaisId", "Estado");
-
-                    b.ToTable("AvisoDevolucion", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_AvisoDevolucion_Cantidad", "[Cantidad] > 0");
-
-                            t.HasCheckConstraint("CK_AvisoDevolucion_Estado", "[Estado] IN (1, 2, 3)");
-
-                            t.HasCheckConstraint("CK_AvisoDevolucion_MotivoCancelacion", "[Estado] <> 3 OR [MotivoCancelacion] IS NOT NULL");
-
-                            t.HasCheckConstraint("CK_AvisoDevolucion_Recibido", "[Estado] <> 2 OR ([MovimientoDevolucionId] IS NOT NULL AND [CantidadRecibida] > 0)");
-
-                            t.HasCheckConstraint("CK_AvisoDevolucion_Resolucion", "[Estado] = 1 OR [FechaResolucion] IS NOT NULL");
-                        });
                 });
 
             modelBuilder.Entity("Inventory.Domain.Entities.Categoria", b =>
@@ -745,13 +657,6 @@ namespace Inventory.Infrastructure.Migrations
                             Codigo = "accesos.revisar",
                             Descripcion = "Abrir y resolver revisiones periódicas de accesos de usuarios",
                             Modulo = "Administración"
-                        },
-                        new
-                        {
-                            Id = 39,
-                            Codigo = "devoluciones.avisar",
-                            Descripcion = "Ver el material prestado a nombre propio y avisar su devolución",
-                            Modulo = "Movimientos"
                         });
                 });
 
@@ -1310,11 +1215,6 @@ namespace Inventory.Infrastructure.Migrations
                         },
                         new
                         {
-                            RolId = 1,
-                            PermisoId = 39
-                        },
-                        new
-                        {
                             RolId = 2,
                             PermisoId = 27
                         },
@@ -1347,11 +1247,6 @@ namespace Inventory.Infrastructure.Migrations
                         {
                             RolId = 2,
                             PermisoId = 9
-                        },
-                        new
-                        {
-                            RolId = 2,
-                            PermisoId = 39
                         },
                         new
                         {
@@ -1457,11 +1352,6 @@ namespace Inventory.Infrastructure.Migrations
                         {
                             RolId = 4,
                             PermisoId = 11
-                        },
-                        new
-                        {
-                            RolId = 4,
-                            PermisoId = 39
                         },
                         new
                         {
@@ -1680,11 +1570,6 @@ namespace Inventory.Infrastructure.Migrations
                         },
                         new
                         {
-                            RolId = 5,
-                            PermisoId = 39
-                        },
-                        new
-                        {
                             RolId = 6,
                             PermisoId = 27
                         },
@@ -1717,11 +1602,6 @@ namespace Inventory.Infrastructure.Migrations
                         {
                             RolId = 6,
                             PermisoId = 9
-                        },
-                        new
-                        {
-                            RolId = 6,
-                            PermisoId = 39
                         },
                         new
                         {
@@ -1827,11 +1707,6 @@ namespace Inventory.Infrastructure.Migrations
                         {
                             RolId = 8,
                             PermisoId = 11
-                        },
-                        new
-                        {
-                            RolId = 8,
-                            PermisoId = 39
                         },
                         new
                         {
@@ -2349,47 +2224,6 @@ namespace Inventory.Infrastructure.Migrations
                     b.Navigation("Pais");
 
                     b.Navigation("Usuario");
-                });
-
-            modelBuilder.Entity("Inventory.Domain.Entities.AvisoDevolucion", b =>
-                {
-                    b.HasOne("Inventory.Domain.Entities.Usuario", "AvisadoPor")
-                        .WithMany()
-                        .HasForeignKey("AvisadoPorId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Inventory.Domain.Entities.Movimiento", "MovimientoDevolucion")
-                        .WithMany()
-                        .HasForeignKey("MovimientoDevolucionId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Inventory.Domain.Entities.Movimiento", "MovimientoOrigen")
-                        .WithMany()
-                        .HasForeignKey("MovimientoOrigenId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Inventory.Domain.Entities.Pais", "Pais")
-                        .WithMany()
-                        .HasForeignKey("PaisId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Inventory.Domain.Entities.Usuario", "ResueltoPor")
-                        .WithMany()
-                        .HasForeignKey("ResueltoPorId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("AvisadoPor");
-
-                    b.Navigation("MovimientoDevolucion");
-
-                    b.Navigation("MovimientoOrigen");
-
-                    b.Navigation("Pais");
-
-                    b.Navigation("ResueltoPor");
                 });
 
             modelBuilder.Entity("Inventory.Domain.Entities.Categoria", b =>

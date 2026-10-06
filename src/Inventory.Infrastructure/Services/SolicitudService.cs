@@ -15,13 +15,23 @@ public class SolicitudService : ISolicitudService
     private readonly ISolicitudNotificationService _notificationService;
     private readonly ILogger<SolicitudService> _logger;
     private readonly IAuditoriaService _auditoria;
+    private readonly Controles.ControlesOptions _controles;
 
-    public SolicitudService(InventoryDbContext db, ISolicitudNotificationService notificationService, ILogger<SolicitudService> logger, IAuditoriaService auditoria)
+    public SolicitudService(InventoryDbContext db, ISolicitudNotificationService notificationService, ILogger<SolicitudService> logger, IAuditoriaService auditoria,
+        Microsoft.Extensions.Options.IOptions<Controles.ControlesOptions>? controles = null)
     {
         _db = db;
         _notificationService = notificationService;
         _logger = logger;
         _auditoria = auditoria;
+        _controles = controles?.Value ?? Controles.ControlesOptions.Permisivo;
+    }
+
+    // Separación de funciones: quien pide no aprueba ni rechaza su propia solicitud.
+    private void ExigirOtraPersona(Solicitud solicitud, UsuarioActuante usuario, string accion)
+    {
+        if (_controles.SeparacionDeFunciones && solicitud.SolicitadoPorId == usuario.Id)
+            throw new SeparacionDeFuncionesException($"No podés {accion} tu propia solicitud: debe hacerlo otra persona.");
     }
 
     private static object SnapshotEstado(Solicitud s) => new
@@ -206,6 +216,8 @@ public class SolicitudService : ISolicitudService
         if (solicitud.Estado != EstadoSolicitud.Pendiente)
             throw new SolicitudEstadoInvalidoException($"Solo se puede aprobar una solicitud en estado Pendiente (actual: {solicitud.Estado}).");
 
+        ExigirOtraPersona(solicitud, usuario, "aprobar");
+
         var anterior = _auditoria.Capturar(SnapshotEstado(solicitud));
 
         // Hay que decidir TODAS las líneas: aprobar "sin líneas" dejaba la solicitud Aprobada
@@ -275,6 +287,8 @@ public class SolicitudService : ISolicitudService
 
         if (solicitud.Estado != EstadoSolicitud.Pendiente)
             throw new SolicitudEstadoInvalidoException($"Solo se puede rechazar una solicitud en estado Pendiente (actual: {solicitud.Estado}).");
+
+        ExigirOtraPersona(solicitud, usuario, "rechazar");
 
         var anterior = _auditoria.Capturar(SnapshotEstado(solicitud));
 

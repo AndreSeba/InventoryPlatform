@@ -413,9 +413,95 @@ base descartable; salieron 54 hallazgos. Estas reglas son el resultado — **no 
 - Nadie puede desactivar su propia cuenta.
 - Al arrancar, la API avisa por log si hay migraciones sin aplicar.
 
-**Decisiones de producto que NO se tomaron** (quedaron como estaban; ver el informe de pruebas): se puede
-aprobar la propia solicitud (sin separación de funciones), se acepta una fecha de vencimiento ya pasada,
-una Entrada libre sin solicitud por API, y la foto del producto se sirve sin autenticación.
+**Decisiones de producto que NO se tomaron** (quedaron como estaban; ver el informe de pruebas): se acepta
+una fecha de vencimiento ya pasada y la foto del producto se sirve sin autenticación. Aprobar la propia
+solicitud y la entrada libre sin solicitud YA están resueltas por `ControlesOptions` (ver más abajo).
+
+### Controles de trazabilidad (2026-10-05) — `ControlesOptions`
+
+Respuesta al reto "puedo pedirle de favor a Operaciones que saque el material y cargarlo después": el
+sistema no puede impedir un traspaso por fuera, pero sí hacer que dentro de él no se pueda mover stock
+sin respaldo y que la irregularidad quede a la vista. Sección `Controles` de `appsettings.json` (por
+defecto TODO estricto; `ControlesOptions.Permisivo` cuando un servicio se arma sin opciones, que es lo
+que hacen las pruebas unitarias):
+
+- `ExigirSolicitudEnMovimientos`: toda entrada y salida se registra contra una línea de solicitud
+  aprobada (`MovimientoService.ExigirSolicitud`). Las correcciones se hacen con un ajuste (motivo
+  obligatorio, auditado). Ajustes y devoluciones no se ven afectados.
+- `SeparacionDeFunciones`: quien pidió el material no lo aprueba ni lo rechaza (`SolicitudService`) ni
+  registra su entrega (`MovimientoService.ValidarDetalleParaEntregaAsync`) → `SeparacionDeFuncionesException`
+  (403). El circuito completo exige tres personas distintas; con un equipo mínimo se puede apagar, sabiendo
+  que se pierde el control. La revisión de accesos usa el mismo interruptor para "nadie revisa su propia cuenta".
+- `RevisionTodosCadaDias` (90), `RevisionAdministradoresCadaDias` (30), `DiasSinActividad` (90): ver
+  "Revisión de accesos".
+
+### Devoluciones con aviso del solicitante (2026-10-06)
+
+Antes el operario registraba la devolución de un préstamo solo (`movimientos.devolucion`), sin que quien pidió
+el material interviniera ni supiera nada. Ahora la devolución tiene dos puntas (decisión del usuario: «el
+solicitante avisa, el operario solo registra la entrada»; sin aviso no hay devolución):
+
+- **Aviso** (`AvisoDevolucion`, `DevolucionService`, `api/devoluciones`): quien pidió el material (el
+  `SolicitadoPorId` de la solicitud de la que salió el préstamo) avisa «voy a devolver N». Estados Pendiente /
+  Recibido / Cancelado, código `DEV-{año}-{id}`. La suma de avisos pendientes + lo ya devuelto no puede superar
+  lo prestado (se serializa con el candado del producto). Solo el solicitante avisa y solo él cancela (con motivo).
+- **Recepción**: `RegistrarDevolucionDto` ganó `AvisoDevolucionId`. El operario registra la entrada contra el
+  aviso: puede recibir MENOS de lo avisado (el resto sigue como préstamo pendiente y se puede volver a avisar),
+  nunca más. El aviso pasa a Recibido en la MISMA transacción, ligado a la entrada creada (transición atómica;
+  si el solicitante lo cancela justo en ese instante, una de las dos gana y la otra falla).
+- **Separación de funciones**: quien avisó no registra la recepción de su propio aviso (`SeparacionDeFunciones`).
+- **Control `ExigirAvisoEnDevoluciones`** (default true): una devolución de un préstamo hecho contra una
+  solicitud EXIGE aviso. Los préstamos sin solicitud (salidas libres de antes de los controles) no tienen a quién
+  avisar y se siguen devolviendo directo; con ese préstamo el aviso se rechaza (403).
+- **Visibilidad**: `GET api/devoluciones/prestamos` (todos, con quién los tiene, mora y avisos en camino, para
+  `movimientos.ver`), `prestamos/mios` y `avisos/mios` (solo los propios), `avisos` (todos, para el operario).
+  El solicitante ve qué material tiene prestado a su nombre.
+- Permiso `devoluciones.avisar` (al final del catálogo, Id 39): lo reciben Administrador, Operador y Solicitante
+  (también por migración en los países ya creados). `PrestamoDto`/`AvisoDevolucionDto` son los contratos nuevos;
+  `GET api/movimientos/prestamos-pendientes` sigue existiendo (lo usa el contador de Inicio).
+- Auditoría: entidad `AvisoDevolucion`, acciones Avisar / Cancelar / Recibir (además de `RegistrarDevolucion`
+  sobre el movimiento). Migración `AvisoDeDevolucion`.
+- Probado: 12 pruebas unitarias (`DevolucionTests`) y el circuito completo contra SQL Server con
+  `scratchpad/prueba_devoluciones.py` (33 verificaciones: permisos, aviso por tramos, cancelación, recepción
+  parcial, no recibir dos veces, auditoría).
+
+### Revisión periódica de accesos (2026-10-06)
+
+Control de TI "gestión de accesos / cuentas privilegiadas": quien tiene `accesos.revisar` abre una
+**campaña** (`RevisionAcceso` + `RevisionAccesoLinea`, `RevisionAccesoService`, `api/revisiones-acceso`),
+decide por cada cuenta y la cierra. Trimestral para todas las cuentas y mensual para las administradoras.
+
+- **Abrir**: foto de las cuentas ACTIVAS del país (nombre, email, rol, último ingreso, alta). Alcance
+  `Todos` o `Administradores` (= rol con `usuarios.gestionar`, `roles.gestionar` o `accesos.revisar`).
+  Una sola campaña en curso por país y alcance (índice único filtrado). La foto es fija: el acta muestra lo
+  que se revisó aunque la cuenta cambie después.
+- **Decidir** (`PUT .../lineas/{id}`): Mantener / Quitar / CambiarRol / Pendiente (deshacer). Quitar y
+  CambiarRol exigen comentario; CambiarRol exige el rol nuevo (activo, del país, distinto del actual).
+  Nada se aplica todavía. Nadie decide sobre su propia cuenta (`SeparacionDeFunciones`) y nunca puede
+  quitarse a sí mismo el acceso.
+- **Cerrar** (`POST .../cerrar`): UPDATE atómico "en curso y sin pendientes" (mismo patrón que cerrar un
+  conteo) y, en la MISMA transacción, aplica las decisiones: desactiva cuentas / cambia roles, audita cada
+  cambio sobre `Usuario` con la campaña como motivo e invalida `SesionUsuarioCache` (la baja vale ya). Si
+  falla algo, o si el resultado dejara al país sin ningún administrador de usuarios activo, se revierte todo.
+  Cerrada/Cancelada son inmutables.
+- **Acta** (`GET .../acta`): Excel con cabecera, una fila por cuenta (decisión, quién, cuándo, aplicada) y
+  bloque de firmas. Es la evidencia para TI.
+- **Estado** (`GET .../estado`): última revisión CERRADA por tipo y si venció; la revisión de todas las
+  cuentas también cubre a los administradores. El frontend lo muestra como aviso en Inicio.
+- Permiso `accesos.revisar` (agregado AL FINAL del catálogo, Id 38), solo en Administrador. Auditoría:
+  entidad `RevisionAcceso`, acciones Iniciar/Decidir/Cerrar/Cancelar.
+- Migración `RevisionDeAccesos`. Probado de punta a punta contra SQL Server con
+  `scratchpad/prueba_revision_accesos.py` (permisos, separación, cierre atómico, baja inmediata de sesión,
+  rollback, acta, auditoría).
+- PostgreSQL: el código no usa nada específico de SQL Server salvo los `HasFilter`/`HasCheckConstraint`
+  con `[corchetes]` de `RevisionAccesoConfiguration`, que entran en el mismo trabajo pendiente que el
+  resto de las configuraciones.
+
+### Power BI (docs/bi, 2026-10-04)
+
+`docs/bi/` trae las vistas de solo lectura del esquema `bi` (`01_vistas_bi.sql`, T-SQL), el tema, las medidas
+DAX y una guía. No tocan ninguna tabla de la aplicación; se vuelven a crear con `CREATE OR ALTER`. Si se
+agrega una vista para un módulo nuevo (por ejemplo la revisión de accesos), va ahí.
 
 ### Más tipos de Ubicación además de Rack/Mueble (consultado 2026-09-14, no implementado)
 
@@ -528,6 +614,61 @@ necesita un campo de fecha nuevo al lado de las cantidades, que viaje en
 3. **Formato del correo de aprobación** — la tabla en el cuerpo del correo en HTML (simple,
    reusa el mismo layout del formulario imprimible) vs. un PDF real adjunto (más prolijo,
    pero suma una librería de generación de PDF, ej. QuestPDF — más trabajo).
+
+## Pendiente (actualizado 2026-10-06)
+
+> Lo que falta después de la reunión corporativa y el cuestionario de TI. Fecha límite de la entrega a TI:
+> **miércoles 2026-10-07**. Marcado entre corchetes quién lo desbloquea.
+
+**Sin commit todavía** — hay trabajo local sin subir en los dos repos: `ControlesOptions` + pruebas, `docs/bi/`,
+`bi.HechoExcepciones`, revisión de accesos (backend, migración `RevisionDeAccesos`, frontend `/accesos`), el
+procedimiento en `docs/` y los dos `CLAUDE.md`. Se sube cuando el usuario diga "comitea y sube".
+
+### Para la entrega a TI (miércoles)
+- [ ] Actualizar el Excel del cuestionario (`generar_cuestionario.py`): filas «Gestión de accesos» y «Cuentas
+      privilegiadas» con la evidencia nueva (revisión periódica + acta + procedimiento); fila de contraseñas y
+      MFA como «hoy: contraseña local con bloqueo; plan: SSO Microsoft, pendiente de que TI registre la app».
+- [ ] Ficha de la aplicación («declarar la aplicación»): qué es, datos que maneja, usuarios, arquitectura,
+      dónde corre, quién es el dueño.
+- [ ] Plan de pruebas / UAT (hay base: `informe-pruebas.md` y las 46 pruebas unitarias) y documento de gestión
+      de cambios (SDLC, vulnerabilidades, retención de datos): son las filas que el desarrollo solo puede cerrar.
+- [ ] Guion de la prueba en vivo (registro, entrada, salida). Con los controles activos una sola persona no
+      puede hacer el circuito: hacen falta 3 usuarios (quien pide / quien aprueba / quien entrega) o relajar
+      `SeparacionDeFunciones` para la demo. **Sin aclarar qué significa «Registro»** en el pedido.
+- [ ] Limpiar datos de prueba antes de cualquier demo (movimientos de prueba, productos con costo 0).
+- [ ] Definir QUIÉN es la segunda persona con `accesos.revisar` (TI o un jefe): con un solo administrador no se
+      puede cerrar la revisión de su propia cuenta.
+
+### Desarrollo pendiente
+- [ ] **SSO con Microsoft (Entra ID, OpenID Connect)** — trae contraseña, cambio de contraseña, MFA y bloqueo, que
+      pasan a TI. Depende de que TI registre la aplicación. **No construir** cambio de contraseña propio ni
+      cambio forzado en el primer ingreso (decisión del usuario 2026-10-06). Falta decidir: ¿cuenta local de
+      emergencia para el administrador o solo SSO? Al implementarlo, actualizar el procedimiento.
+- [ ] Parámetros de cuenta configurables (largo mínimo, bloqueo, duración de sesión) — solo mientras no haya SSO.
+- [ ] Power BI: página 5 «Excepciones» en `Reporte_Inventario_Power_BI.html` (consulta del generador + plantilla),
+      medidas de excepciones en `03_medidas.dax` y la guía; vista `bi` de revisiones de acceso (última revisión,
+      % revisado, cuentas sin ingreso en 90 días).
+- [ ] **PostgreSQL** (no hay servidor SQL Server disponible: hay que estar listos para migrar). Estimado 3–5 días.
+      Falta: cambiar `UseSqlServer` por el proveedor según configuración; `sp_getapplock` de `ProductoService`
+      → `pg_advisory_xact_lock`; mapear en `ManejadorGlobalDeExcepciones` los SQLSTATE (23505, 23514, 22001,
+      23503, 40P01) además de los números de SQL Server; los 15 `HasFilter`/`HasCheckConstraint` con `[corchetes]`
+      (incluye `RevisionAccesoConfiguration` y `AvisoDevolucionConfiguration`) necesitan una función por proveedor; regenerar las migraciones
+      (las 18 actuales son de SQL Server, 3 con T-SQL a mano) + script de migración de datos; vistas `bi` en
+      PostgreSQL; repetir el simulador multiusuario. **Falta dónde se alojaría y un servidor para probar.**
+- [ ] **Reserva de stock**: hoy una solicitud pendiente no aparta existencia y dos personas pueden pedir lo mismo
+      (opciones A reservar al aprobar —recomendada—, B, C; sin decidir).
+- [ ] Tres decisiones de producto abiertas: se acepta fecha de vencimiento ya pasada, la foto del producto se
+      sirve sin autenticación, y una salida con `retorna=false` ignora el destino.
+- [ ] Ideas guardadas: convertir `Producto.UnidadMedida` en FK real a `Unidad` (para reportes) y modalidad
+      «Solicitud FU» para consumibles (espera la aprobación del proyecto).
+- [ ] Notificaciones por correo en Solicitudes (ver sección «Pendiente: notificaciones por correo»).
+
+### Operativo
+- [ ] Laptop del trabajo: `git pull` en los dos repos, `dotnet ef database update` (migraciones `RevisionDeAccesos` y `AvisoDeDevolucion`;
+      sin ella aparece «invalid object name») y volver a iniciar sesión (el permiso nuevo viaja en el token).
+- [ ] Quitar a mano los `Co-Authored-By` de los commits viejos (reescribir el historial lo hace el usuario).
+- [ ] Preguntas sin responder: el punto cortado «Ver si no se puede hacer todo en…» de la reunión, y si la API
+      de desarrollo pasa a usar la base `InventoryReal` (LocalDB) como principal.
 
 ## Frontend
 

@@ -19,6 +19,7 @@ public static class DependencyInjection
             options.UseSqlServer(connectionString));
 
         services.AddMemoryCache();
+        services.Configure<Controles.ControlesOptions>(configuration.GetSection(Controles.ControlesOptions.SectionName));
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
         services.AddSingleton<JwtTokenService>();
 
@@ -38,6 +39,8 @@ public static class DependencyInjection
         services.AddScoped<IResumenService, ResumenService>();
         services.AddScoped<ISolicitudService, SolicitudService>();
         services.AddScoped<IConteoService, ConteoService>();
+        services.AddScoped<IRevisionAccesoService, RevisionAccesoService>();
+        services.AddScoped<IDevolucionService, DevolucionService>();
         services.AddScoped<ISolicitudNotificationService, LoggingSolicitudNotificationService>();
 
         return services;

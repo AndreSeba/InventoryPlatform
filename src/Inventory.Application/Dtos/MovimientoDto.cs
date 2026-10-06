@@ -42,7 +42,9 @@ public record RegistrarSalidaDto(
 
 public record RegistrarAjusteDto(int ProductoId, int UbicacionId, int Cantidad, bool EsPositivo, string Motivo);
 
-public record RegistrarDevolucionDto(int MovimientoOrigenId, int UbicacionId, int Cantidad, string? Motivo);
+// AvisoDevolucionId: el aviso del solicitante que esta entrada cierra. Obligatorio cuando el préstamo salió
+// contra una solicitud y el control `ExigirAvisoEnDevoluciones` está activo.
+public record RegistrarDevolucionDto(int MovimientoOrigenId, int UbicacionId, int Cantidad, string? Motivo, int? AvisoDevolucionId = null);
 
 public record MovimientoResultadoDto(int MovimientoId, string NumeroMovimiento, string Estado, DateTime FechaMovimiento, int ExistenciaResultante);
 

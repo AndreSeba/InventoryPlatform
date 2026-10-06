@@ -22,6 +22,9 @@ public class InventoryDbContext : DbContext
     public DbSet<SesionConteoLinea> SesionConteoLineas => Set<SesionConteoLinea>();
     public DbSet<SesionConteoEvidencia> SesionConteoEvidencias => Set<SesionConteoEvidencia>();
     public DbSet<Auditoria> Auditorias => Set<Auditoria>();
+    public DbSet<AvisoDevolucion> AvisosDevolucion => Set<AvisoDevolucion>();
+    public DbSet<RevisionAcceso> RevisionesAcceso => Set<RevisionAcceso>();
+    public DbSet<RevisionAccesoLinea> RevisionAccesoLineas => Set<RevisionAccesoLinea>();
 
     public DbSet<Usuario> Usuarios => Set<Usuario>();
     public DbSet<Rol> Roles => Set<Rol>();
