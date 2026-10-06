@@ -166,6 +166,13 @@ public class ConteoInvalidoException : DominioException
     public ConteoInvalidoException(string mensaje) : base(mensaje) { }
 }
 
+public class NotificacionNoEncontradaException : DominioException
+{
+    public override int Status => 404;
+
+    public NotificacionNoEncontradaException(long id) : base($"No existe una notificación con id {id}.") { }
+}
+
 public class AvisoDevolucionNoEncontradoException : DominioException
 {
     public override int Status => 404;

@@ -435,6 +435,38 @@ que hacen las pruebas unitarias):
 - `RevisionTodosCadaDias` (90), `RevisionAdministradoresCadaDias` (30), `DiasSinActividad` (90): ver
   "Revisión de accesos".
 
+### Notificaciones (campanita, 2026-10-06)
+
+`Notificacion` (una fila por PERSONA, con leída/no leída), `NotificacionService`, `api/notificaciones`
+(`GET` lista + contador, `POST {id}/leida`, `POST leidas`; sin policy de permiso: cada persona ve las suyas,
+usuario y país salen del token). Decisión del usuario: **todo guardado** y las cuatro categorías.
+
+- **Se generan en UN solo lugar, desde el estado real** — no hay ganchos repartidos en los servicios de negocio
+  (así no se puede romper un flujo por una notificación ni olvidar un caso). Cada sincronización calcula «qué
+  debería estar notificado ahora», lo compara con lo guardado por `Clave` y crea / actualiza / resuelve la diferencia.
+  `Clave` = identidad por persona (`sol-pend:42`, `inv-sin-stock`, `pres-mora:17`…); índice único filtrado
+  (persona + clave, solo no resueltas) contra duplicados por carrera.
+- **Frenos**: sincronización «rápida» (solicitudes, avisos de devolución, préstamos) cada 30 s por país; «lenta»
+  (existencias, vencimientos, conteos, cuentas, revisión de accesos) cada 10 min. Se dispara al consultar la
+  campanita (`ListarAsync`); el freno es `IMemoryCache` (con varias instancias de la API cada una calcularía su
+  turno: es seguro por el índice único, solo repite trabajo). Una falla al sincronizar se registra y nunca rompe la lista.
+- **Categorías**: `Pendiente` (por aprobar → `solicitudes.aprobar`; por entregar/recibir → `solicitudes.entregar`;
+  devolución por recibir → `movimientos.devolucion`; se RESUELVEN solas), `Resultado` (tu solicitud aprobada /
+  rechazada / entregada, tu devolución recibida; solo de la última semana, quedan como historial 30 días),
+  `Inventario` (sin stock, bajo mínimo, lotes vencidos / por vencer → `movimientos.ver`; préstamo vencido o por
+  vencer a su solicitante y el total en mora a `movimientos.devolucion`), `Control` (revisión de accesos vencida →
+  `accesos.revisar`; conteos abiertos > 7 días → `conteos.registrar`; cuentas activas que nunca ingresaron en
+  14 días → `usuarios.gestionar`).
+- **Reglas**: quien pidió algo no recibe el «por aprobar/entregar» de lo suyo; una notificación AGREGADA («N productos
+  sin stock», `Valor`) vuelve a quedar sin leer y sube en la lista solo si el número SUBE; las resueltas de hace
+  más de un mes y los resultados viejos se borran en la sincronización lenta.
+- **Trampa**: `AplicarAsync` descarta el rastreo de `Notificacion` antes de leer, porque «marcar leída» es un
+  `ExecuteUpdate` (no pasa por el rastreo) y una lectura previa del mismo contexto devolvería valores viejos.
+- Al desplegar por primera vez cada persona recibe de golpe los resultados de la última semana (aprobadas,
+  entregadas…): es esperado, no un error.
+- Migración `Notificaciones`. 11 pruebas unitarias (`NotificacionTests`): pendientes que se cierran solas,
+  resultados, leídas por persona, no duplicar, agregadas, préstamos, control.
+
 ### Devoluciones con aviso del solicitante (2026-10-06)
 
 Antes el operario registraba la devolución de un préstamo solo (`movimientos.devolucion`), sin que quien pidió
