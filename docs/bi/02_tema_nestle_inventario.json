@@ -1,0 +1,34 @@
+{
+  "name": "Inventario Material Promocional",
+  "dataColors": ["#1D4ED8", "#6B5A4A", "#F59E0B", "#15803D", "#B42318", "#5F8BE3", "#C2410C", "#7C8BA1"],
+  "background": "#F4F5F7",
+  "foreground": "#1F2937",
+  "tableAccent": "#1D4ED8",
+  "good": "#15803D",
+  "neutral": "#F59E0B",
+  "bad": "#B42318",
+  "maximum": "#1D4ED8",
+  "center": "#F59E0B",
+  "minimum": "#C3D5F7",
+  "null": "#9AA1AE",
+  "textClasses": {
+    "callout": { "fontSize": 34, "fontFace": "Segoe UI Semibold", "color": "#1F2937" },
+    "title": { "fontSize": 14, "fontFace": "Segoe UI Semibold", "color": "#1F2937" },
+    "header": { "fontSize": 12, "fontFace": "Segoe UI Semibold", "color": "#4B5563" },
+    "label": { "fontSize": 11, "fontFace": "Segoe UI", "color": "#4B5563" }
+  },
+  "visualStyles": {
+    "*": {
+      "*": {
+        "background": [{ "color": { "solid": { "color": "#FFFFFF" } }, "transparency": 0 }],
+        "border": [{ "show": true, "color": { "solid": { "color": "#E2E5EA" } }, "radius": 8 }],
+        "title": [{ "show": true, "fontColor": { "solid": { "color": "#1F2937" } }, "fontSize": 13 }]
+      }
+    },
+    "page": {
+      "*": {
+        "background": [{ "color": { "solid": { "color": "#F4F5F7" } }, "transparency": 0 }]
+      }
+    }
+  }
+}

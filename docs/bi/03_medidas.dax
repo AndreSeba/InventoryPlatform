@@ -1,0 +1,118 @@
+// ============================================================================
+// Medidas DAX — Inventario de Material Promocional
+// ----------------------------------------------------------------------------
+// Cómo usarlas: en Power BI Desktop, "Introducir datos" -> crear una tabla vacía
+// llamada _Medidas y, con ella seleccionada, "Nueva medida" para cada bloque.
+// Los nombres de tabla son los de las vistas SIN el esquema (HechoMovimientos,
+// no bi.HechoMovimientos): renombrar las consultas al importar.
+// ============================================================================
+
+// ---- Tabla de fechas (Modelado -> Nueva tabla) ------------------------------
+DimFecha =
+ADDCOLUMNS (
+    CALENDAR ( DATE ( 2026, 1, 1 ), DATE ( YEAR ( TODAY () ) + 1, 12, 31 ) ),
+    "Año", YEAR ( [Date] ),
+    "Mes N", MONTH ( [Date] ),
+    "Mes", FORMAT ( [Date], "MMM yyyy", "es-ES" ),
+    "Mes Orden", YEAR ( [Date] ) * 100 + MONTH ( [Date] ),
+    "Semana", WEEKNUM ( [Date], 2 )
+)
+
+// ---- Inventario --------------------------------------------------------------
+Productos Activos = COUNTROWS ( StockPorProducto )
+
+Existencia Total = SUM ( StockPorProducto[Existencia] )
+
+Valor del Stock = SUM ( StockPorProducto[ValorStock] )
+
+Productos Bajo Mínimo =
+CALCULATE ( COUNTROWS ( StockPorProducto ), StockPorProducto[EstadoStock] = "Bajo mínimo" )
+
+Productos Sin Stock =
+CALCULATE ( COUNTROWS ( StockPorProducto ), StockPorProducto[EstadoStock] = "Sin stock" )
+
+% Productos en Riesgo =
+DIVIDE ( [Productos Bajo Mínimo] + [Productos Sin Stock], [Productos Activos] )
+
+// ---- Movimientos ----------------------------------------------------------------
+Movimientos = COUNTROWS ( HechoMovimientos )
+
+Unidades Entradas =
+CALCULATE ( SUM ( HechoMovimientos[Cantidad] ), HechoMovimientos[Tipo] = "Entrada" )
+
+Unidades Salidas =
+CALCULATE ( SUM ( HechoMovimientos[Cantidad] ), HechoMovimientos[Tipo] = "Salida" )
+
+Unidades Ajustadas =
+CALCULATE (
+    SUM ( HechoMovimientos[Cantidad] ),
+    HechoMovimientos[Tipo] IN { "Ajuste +", "Ajuste -" }
+)
+
+Salidas Últimos 30 Días =
+CALCULATE (
+    [Unidades Salidas],
+    DATESINPERIOD ( DimFecha[Date], MAX ( HechoMovimientos[Fecha] ), -30, DAY )
+)
+
+Valor Movido (Salidas) =
+CALCULATE ( SUMX ( HechoMovimientos, ABS ( HechoMovimientos[ValorEfectivo] ) ), HechoMovimientos[Tipo] = "Salida" )
+
+// ---- Solicitudes ------------------------------------------------------------------
+Solicitudes = COUNTROWS ( HechoSolicitudes )
+
+Solicitudes Pendientes =
+CALCULATE ( COUNTROWS ( HechoSolicitudes ), HechoSolicitudes[Estado] = "Pendiente" )
+
+Solicitudes Resueltas =
+CALCULATE (
+    COUNTROWS ( HechoSolicitudes ),
+    NOT ( HechoSolicitudes[Estado] IN { "Pendiente", "Borrador" } )
+)
+
+% Aprobación =
+DIVIDE (
+    CALCULATE (
+        COUNTROWS ( HechoSolicitudes ),
+        HechoSolicitudes[Estado] IN { "Aprobada", "Entrega parcial", "Entregada" }
+    ),
+    [Solicitudes Resueltas]
+)
+
+Días Promedio de Resolución = AVERAGE ( HechoSolicitudes[DiasParaResolver] )
+
+Unidades Entregadas = SUM ( HechoSolicitudes[UnidadesEntregadas] )
+
+% Cumplimiento de Entrega =
+DIVIDE ( SUM ( HechoSolicitudes[UnidadesEntregadas] ), SUM ( HechoSolicitudes[UnidadesAprobadas] ) )
+
+// ---- Préstamos -------------------------------------------------------------------------
+Préstamos Pendientes = COUNTROWS ( PrestamosPendientes )
+
+Préstamos en Mora =
+CALCULATE ( COUNTROWS ( PrestamosPendientes ), PrestamosPendientes[EnMora] = TRUE () )
+
+Unidades por Devolver = SUM ( PrestamosPendientes[Pendiente] )
+
+// ---- Conteo físico -----------------------------------------------------------------------
+Conteos Cerrados =
+CALCULATE ( COUNTROWS ( HechoConteos ), HechoConteos[Estado] = "Cerrado" )
+
+Líneas Contadas = SUM ( HechoConteos[LineasContadas] )
+
+Líneas con Diferencia = SUM ( HechoConteos[LineasConDiferencia] )
+
+% Exactitud del Inventario =
+1 - DIVIDE ( [Líneas con Diferencia], [Líneas Contadas] )
+
+Valor Neto de Diferencias = SUM ( HechoConteoLineas[ValorDiferencia] )
+
+Valor Absoluto de Diferencias =
+SUMX ( HechoConteoLineas, ABS ( HechoConteoLineas[ValorDiferencia] ) )
+
+Días Promedio hasta Cierre = AVERAGE ( HechoConteos[DiasHastaCierre] )
+
+// ---- Trazabilidad -------------------------------------------------------------------------
+Acciones Auditadas = COUNTROWS ( HechoAuditoria )
+
+Usuarios Activos = DISTINCTCOUNT ( HechoAuditoria[Usuario] )
