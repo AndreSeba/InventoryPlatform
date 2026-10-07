@@ -574,10 +574,9 @@ firma; el proveedor firma a mano en el papel (bloque vacío en el formulario).
   versiones**: al guardar una nueva la anterior queda inactiva (índice único filtrado = una activa por persona); quitar la firma
   también solo la desactiva. `Solicitud.FirmaSolicitanteId` / `FirmaAprobadorId` fijan la versión usada al CREAR y al APROBAR, así un
   formulario reimpreso se ve igual aunque la persona cambie su firma. Si no tenía firma en ese momento se usa su firma activa de hoy.
-- `api/firma` (`GET`/`PUT`/`DELETE`, sin policy de permiso: cada quien SOLO la suya, el usuario sale del token). `PUT` exige la
-  **contraseña** (con la sesión abierta en una PC compartida nadie cambia la firma de otro): contraseña mala = **400, no 401** (un 401 en
-  el frontend se lee como sesión vencida), con freno de 5 intentos / 10 min por usuario (`IMemoryCache`). Valida que sea PNG por sus
-  primeros bytes, tope 300 KB y dimensiones desde el encabezado IHDR; que el dibujo no esté vacío lo comprueba el cliente.
+- `api/firma` (`GET`/`PUT`/`DELETE`, sin policy de permiso: cada quien SOLO la suya, el usuario sale del token). Guardar NO pide
+  contraseña (decisión del usuario; se había puesto y se quitó). Valida que sea PNG por sus primeros bytes, tope 300 KB y dimensiones
+  desde el encabezado IHDR; que el dibujo no esté vacío lo comprueba el cliente.
 - `GET api/solicitudes/{id}/firmas`: mismas reglas de acceso que el detalle (quien ve todas, o el dueño). **La firma de quien autoriza
   solo viaja si la solicitud está Aprobada / EntregadaParcial / Entregada** (nunca pendiente ni rechazada) y siempre es la de quien
   realmente ejecutó la acción. La firma solo sale por aquí, nunca por un endpoint suelto por usuario.

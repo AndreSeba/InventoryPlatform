@@ -7,19 +7,17 @@ using Inventory.Infrastructure.Persistence;
 using Inventory.Infrastructure.Services;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace Inventory.UnitTests;
 
-// Firma manuscrita por usuario: se guarda con contraseña, con versiones, y solo se estampa en el formulario de una
+// Firma manuscrita por usuario: se guarda con versiones, y solo se estampa en el formulario de una
 // solicitud cuando esa persona realmente hizo la acción.
 public class FirmaTests : IDisposable
 {
     private const int PaisId = 1;
-    private const string Clave = "Clave1234";
 
     private readonly SqliteConnection _connection;
     private readonly InventoryDbContext _db;
@@ -36,7 +34,7 @@ public class FirmaTests : IDisposable
         _db = new InventoryDbContext(new DbContextOptionsBuilder<InventoryDbContext>().UseSqlite(_connection).Options);
         _db.Database.EnsureCreated();
         _auditoria = new AuditoriaService(_db);
-        _firmas = new FirmaService(_db, _auditoria, new MemoryCache(new MemoryCacheOptions()));
+        _firmas = new FirmaService(_db, _auditoria);
 
         _solicitante = NuevoUsuario("solicitante@inventario.local", "Solicitante");
         _aprobador = NuevoUsuario("aprobador@inventario.local", "Aprobador");
@@ -56,7 +54,7 @@ public class FirmaTests : IDisposable
 
     private UsuarioActuante NuevoUsuario(string email, string nombre)
     {
-        var u = new Usuario { Email = email, NombreCompleto = nombre, PasswordHash = BCrypt.Net.BCrypt.HashPassword(Clave, 4), RolId = 1, PaisId = PaisId, Activo = true };
+        var u = new Usuario { Email = email, NombreCompleto = nombre, PasswordHash = "x", RolId = 1, PaisId = PaisId, Activo = true };
         _db.Usuarios.Add(u);
         _db.SaveChanges();
         return new UsuarioActuante(u.Id, nombre);
@@ -92,36 +90,25 @@ public class FirmaTests : IDisposable
     }
 
     [Fact]
-    public async Task Guardar_ExigeContrasenaCorrecta_YUnPngValido()
+    public async Task Guardar_ExigeUnPngValido()
     {
-        await Assert.ThrowsAsync<ValidacionException>(() => _firmas.GuardarAsync(new GuardarFirmaDto(Png(), "otra"), PaisId, _solicitante, default));
-        await Assert.ThrowsAsync<ValidacionException>(() => _firmas.GuardarAsync(new GuardarFirmaDto(Convert.ToBase64String(new byte[100]), Clave), PaisId, _solicitante, default));
-        await Assert.ThrowsAsync<ValidacionException>(() => _firmas.GuardarAsync(new GuardarFirmaDto(Png(ancho: 5000), Clave), PaisId, _solicitante, default));
-        await Assert.ThrowsAsync<ValidacionException>(() => _firmas.GuardarAsync(new GuardarFirmaDto(Png(relleno: 400 * 1024), Clave), PaisId, _solicitante, default));
-        await Assert.ThrowsAsync<ValidacionException>(() => _firmas.GuardarAsync(new GuardarFirmaDto("", Clave), PaisId, _solicitante, default));
+        await Assert.ThrowsAsync<ValidacionException>(() => _firmas.GuardarAsync(new GuardarFirmaDto(Convert.ToBase64String(new byte[100])), PaisId, _solicitante, default));
+        await Assert.ThrowsAsync<ValidacionException>(() => _firmas.GuardarAsync(new GuardarFirmaDto(Png(ancho: 5000)), PaisId, _solicitante, default));
+        await Assert.ThrowsAsync<ValidacionException>(() => _firmas.GuardarAsync(new GuardarFirmaDto(Png(relleno: 400 * 1024)), PaisId, _solicitante, default));
+        await Assert.ThrowsAsync<ValidacionException>(() => _firmas.GuardarAsync(new GuardarFirmaDto(""), PaisId, _solicitante, default));
         Assert.False((await _firmas.ObtenerPropiaAsync(_solicitante.Id, default)).Tiene);
 
-        var ok = await _firmas.GuardarAsync(new GuardarFirmaDto("data:image/png;base64," + Png(), Clave), PaisId, _solicitante, default);
+        var ok = await _firmas.GuardarAsync(new GuardarFirmaDto("data:image/png;base64," + Png()), PaisId, _solicitante, default);
         Assert.True(ok.Tiene);
         Assert.True((await _firmas.ObtenerPropiaAsync(_solicitante.Id, default)).Tiene);
         Assert.False((await _firmas.ObtenerPropiaAsync(_aprobador.Id, default)).Tiene);   // cada quien la suya
     }
 
     [Fact]
-    public async Task ContrasenaIncorrecta_VariasVeces_BloqueaTemporalmente()
-    {
-        for (var i = 0; i < 5; i++)
-            await Assert.ThrowsAsync<ValidacionException>(() => _firmas.GuardarAsync(new GuardarFirmaDto(Png(), "mal"), PaisId, _solicitante, default));
-        // Aun con la contraseña buena, queda frenado.
-        var ex = await Assert.ThrowsAsync<ValidacionException>(() => _firmas.GuardarAsync(new GuardarFirmaDto(Png(), Clave), PaisId, _solicitante, default));
-        Assert.Contains("Demasiados intentos", ex.Message);
-    }
-
-    [Fact]
     public async Task Reemplazar_DejaUnaSolaActiva_YConservaLaHistoria()
     {
-        await _firmas.GuardarAsync(new GuardarFirmaDto(Png(relleno: 10), Clave), PaisId, _solicitante, default);
-        await _firmas.GuardarAsync(new GuardarFirmaDto(Png(relleno: 20), Clave), PaisId, _solicitante, default);
+        await _firmas.GuardarAsync(new GuardarFirmaDto(Png(relleno: 10)), PaisId, _solicitante, default);
+        await _firmas.GuardarAsync(new GuardarFirmaDto(Png(relleno: 20)), PaisId, _solicitante, default);
 
         Assert.Equal(2, await _db.Firmas.CountAsync(f => f.UsuarioId == _solicitante.Id));
         Assert.Equal(1, await _db.Firmas.CountAsync(f => f.UsuarioId == _solicitante.Id && f.Activa));
@@ -135,8 +122,8 @@ public class FirmaTests : IDisposable
     [Fact]
     public async Task Solicitud_FijaLaVersionConLaQueSeFirmo_YSoloEstampaAQuienActuo()
     {
-        await _firmas.GuardarAsync(new GuardarFirmaDto(Png(relleno: 10), Clave), PaisId, _solicitante, default);
-        await _firmas.GuardarAsync(new GuardarFirmaDto(Png(relleno: 10), Clave), PaisId, _aprobador, default);
+        await _firmas.GuardarAsync(new GuardarFirmaDto(Png(relleno: 10)), PaisId, _solicitante, default);
+        await _firmas.GuardarAsync(new GuardarFirmaDto(Png(relleno: 10)), PaisId, _aprobador, default);
         var id = await NuevaSolicitudAsync();
 
         // Pendiente: firma del solicitante, ninguna de quien autoriza (todavía no hizo nada).
@@ -151,14 +138,14 @@ public class FirmaTests : IDisposable
 
         // El solicitante cambia su firma: el formulario de la solicitud ya creada conserva la que usó.
         var antes = aprobada.SolicitantePngBase64;
-        await _firmas.GuardarAsync(new GuardarFirmaDto(Png(relleno: 99), Clave), PaisId, _solicitante, default);
+        await _firmas.GuardarAsync(new GuardarFirmaDto(Png(relleno: 99)), PaisId, _solicitante, default);
         Assert.Equal(antes, (await _firmas.ObtenerDeSolicitudAsync(id, PaisId, default)).SolicitantePngBase64);
     }
 
     [Fact]
     public async Task SolicitudRechazada_NoEstampaLaFirmaDeQuienAutoriza()
     {
-        await _firmas.GuardarAsync(new GuardarFirmaDto(Png(), Clave), PaisId, _aprobador, default);
+        await _firmas.GuardarAsync(new GuardarFirmaDto(Png()), PaisId, _aprobador, default);
         var id = await NuevaSolicitudAsync();
         await Solicitudes().RechazarAsync(id, new RechazarSolicitudDto("Sin presupuesto"), PaisId, _aprobador, default);
 
@@ -172,7 +159,7 @@ public class FirmaTests : IDisposable
         var id = await NuevaSolicitudAsync();
         Assert.Null((await _firmas.ObtenerDeSolicitudAsync(id, PaisId, default)).SolicitantePngBase64);
 
-        await _firmas.GuardarAsync(new GuardarFirmaDto(Png(), Clave), PaisId, _solicitante, default);
+        await _firmas.GuardarAsync(new GuardarFirmaDto(Png()), PaisId, _solicitante, default);
         Assert.NotNull((await _firmas.ObtenerDeSolicitudAsync(id, PaisId, default)).SolicitantePngBase64);
     }
 

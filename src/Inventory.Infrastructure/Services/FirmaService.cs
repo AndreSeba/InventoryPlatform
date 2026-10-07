@@ -5,7 +5,6 @@ using Inventory.Domain.Entities;
 using Inventory.Domain.Enums;
 using Inventory.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Memory;
 
 namespace Inventory.Infrastructure.Services;
 
@@ -15,20 +14,13 @@ public class FirmaService : IFirmaService
     private const int MaxBytes = 300 * 1024;
     private const int AnchoMin = 60, AnchoMax = 2000, AltoMin = 30, AltoMax = 800;
 
-    // Frena adivinar la contraseña de otra persona desde una sesión que quedó abierta (mismo criterio que el login).
-    private const int MaxIntentos = 5;
-    private static readonly TimeSpan Ventana = TimeSpan.FromMinutes(10);
-    private sealed record Fallos(int Cantidad, DateTime Vence);
-
     private readonly InventoryDbContext _db;
     private readonly IAuditoriaService _auditoria;
-    private readonly IMemoryCache? _cache;
 
-    public FirmaService(InventoryDbContext db, IAuditoriaService auditoria, IMemoryCache? cache = null)
+    public FirmaService(InventoryDbContext db, IAuditoriaService auditoria)
     {
         _db = db;
         _auditoria = auditoria;
-        _cache = cache;
     }
 
     public async Task<FirmaPropiaDto> ObtenerPropiaAsync(int usuarioId, CancellationToken ct)
@@ -40,7 +32,6 @@ public class FirmaService : IFirmaService
     public async Task<FirmaPropiaDto> GuardarAsync(GuardarFirmaDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
         var datos = DecodificarPng(dto.PngBase64);
-        await ExigirContrasenaAsync(usuario.Id, dto.Password, ct);
 
         await using var tx = await _db.Database.BeginTransactionAsync(ct);
         var anterior = await _db.Firmas.FirstOrDefaultAsync(f => f.UsuarioId == usuario.Id && f.Activa, ct);
@@ -126,30 +117,5 @@ public class FirmaService : IFirmaService
         if (ancho is < AnchoMin or > AnchoMax || alto is < AltoMin or > AltoMax)
             throw new ValidacionException("El tamaño de la firma no es válido.");
         return d;
-    }
-
-    private async Task ExigirContrasenaAsync(int usuarioId, string? password, CancellationToken ct)
-    {
-        var clave = $"firma-fallos:{usuarioId}";
-        Fallos? previo = null;
-        if (_cache is not null && _cache.TryGetValue(clave, out Fallos? f) && f is not null && f.Vence > DateTime.UtcNow)
-        {
-            previo = f;
-            if (previo.Cantidad >= MaxIntentos)
-                throw new ValidacionException($"Demasiados intentos con la contraseña. Probá de nuevo en {(int)Math.Ceiling((previo.Vence - DateTime.UtcNow).TotalMinutes)} minuto(s).");
-        }
-
-        var hash = await _db.Usuarios.AsNoTracking().Where(u => u.Id == usuarioId).Select(u => u.PasswordHash).FirstOrDefaultAsync(ct);
-        // 400 y no 401: un 401 en el frontend se lee como «la sesión venció» y manda a iniciar sesión de nuevo.
-        if (hash is null || string.IsNullOrEmpty(password) || !BCrypt.Net.BCrypt.Verify(password, hash))
-        {
-            if (_cache is not null)
-            {
-                var vence = previo?.Vence ?? DateTime.UtcNow.Add(Ventana);
-                _cache.Set(clave, new Fallos((previo?.Cantidad ?? 0) + 1, vence), new DateTimeOffset(vence, TimeSpan.Zero));
-            }
-            throw new ValidacionException("La contraseña no es correcta.");
-        }
-        _cache?.Remove(clave);
     }
 }
