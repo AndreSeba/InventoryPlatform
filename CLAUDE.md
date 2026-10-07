@@ -485,6 +485,10 @@ usuario y país salen del token). Decisión del usuario: **todo guardado** y las
   `ExecuteUpdate` (no pasa por el rastreo) y una lectura previa del mismo contexto devolvería valores viejos.
 - Al desplegar por primera vez cada persona recibe de golpe los resultados de la última semana (aprobadas,
   entregadas…): es esperado, no un error.
+- **Tiempo límite tras leer** (`Notificaciones:HorasVisiblesTrasLeer`, 24 h): una notificación leída (o abierta con un clic)
+  sale de la campanita pasado ese tiempo, EXCEPTO las de categoría `Pendiente` (son una tarea: siguen hasta resolverse).
+  Solo se oculta en la consulta, la fila NO se borra: la condición sigue vigente y, si se borrara, la sincronización la
+  volvería a crear como nueva y sin leer. Una agregada que empeora (el número sube) vuelve a aparecer sin leer.
 - Migración `Notificaciones`. 11 pruebas unitarias (`NotificacionTests`): pendientes que se cierran solas,
   resultados, leídas por persona, no duplicar, agregadas, préstamos, control.
 

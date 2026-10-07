@@ -344,6 +344,34 @@ public class NotificacionTests : IDisposable
     }
 
     [Fact]
+    public async Task UnaNotificacionLeida_SaleDeLaCampanitaPasadoElTiempoLimite_SalvoLasPendientes()
+    {
+        var s = await NuevaSolicitudAsync(EstadoSolicitud.Rechazada);          // «Resultado» para la solicitante
+        await NuevaSolicitudAsync(EstadoSolicitud.Pendiente);                   // «Pendiente» para el admin
+        await De(_solicitante); await De(_admin);
+
+        var resultado = Assert.Single((await _notificaciones.ListarAsync(_solicitante.Id, PaisId, default)).Items, n => n.Titulo == "Tu solicitud fue rechazada");
+        var pendiente = Assert.Single((await _notificaciones.ListarAsync(_admin.Id, PaisId, default)).Items, n => n.Titulo == "Solicitud por aprobar");
+        await _notificaciones.MarcarLeidaAsync(resultado.Id, _solicitante.Id, default);
+        await _notificaciones.MarcarLeidaAsync(pendiente.Id, _admin.Id, default);
+
+        // recién leídas: siguen a la vista (marcadas como leídas)
+        Assert.Contains((await _notificaciones.ListarAsync(_solicitante.Id, PaisId, default)).Items, n => n.Id == resultado.Id && n.Leida);
+
+        // pasadas 25 horas desde que se leyeron: la de resultado sale; la pendiente (una tarea) sigue
+        var hace25h = DateTime.UtcNow.AddHours(-25);
+        await _db.Notificaciones.Where(n => n.Id == resultado.Id || n.Id == pendiente.Id).ExecuteUpdateAsync(u => u.SetProperty(n => n.FechaLeida, hace25h));
+        Assert.DoesNotContain((await _notificaciones.ListarAsync(_solicitante.Id, PaisId, default)).Items, n => n.Id == resultado.Id);
+        Assert.Contains((await _notificaciones.ListarAsync(_admin.Id, PaisId, default)).Items, n => n.Id == pendiente.Id);
+
+        // y volver a sincronizar no la vuelve a crear como nueva
+        await _notificaciones.SincronizarAsync(PaisId, default);
+        var despues = await _notificaciones.ListarAsync(_solicitante.Id, PaisId, default);
+        Assert.DoesNotContain(despues.Items, n => n.Titulo == "Tu solicitud fue rechazada");
+        Assert.Equal(0, despues.Items.Count(n => !n.Leida && n.Titulo == "Tu solicitud fue rechazada"));
+    }
+
+    [Fact]
     public async Task ConteoAbiertoHaceDias_AvisaAQuienCuenta()
     {
         _db.SesionesConteo.Add(new SesionConteo

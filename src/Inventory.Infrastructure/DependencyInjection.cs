@@ -21,6 +21,7 @@ public static class DependencyInjection
         services.AddMemoryCache();
         services.Configure<Controles.ControlesOptions>(configuration.GetSection(Controles.ControlesOptions.SectionName));
         services.Configure<Controles.FuncionesOptions>(configuration.GetSection(Controles.FuncionesOptions.SectionName));
+        services.Configure<Controles.NotificacionesOptions>(configuration.GetSection(Controles.NotificacionesOptions.SectionName));
 
         // Correo saliente (apagado por defecto): la cola se llena desde NotificacionService y la vacía un servicio
         // en segundo plano de la API (EnvioCorreoHostedService).

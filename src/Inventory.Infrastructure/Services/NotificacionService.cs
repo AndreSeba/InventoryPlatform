@@ -40,9 +40,11 @@ public class NotificacionService : INotificacionService
     private readonly ILogger<NotificacionService>? _logger;
     private readonly bool _revisionAccesosHabilitada;
     private readonly ICorreoSaliente? _correo;
+    private readonly int _horasVisiblesTrasLeer;
 
     public NotificacionService(InventoryDbContext db, IMemoryCache cache, IDevolucionService devoluciones,
-        IRevisionAccesoService accesos, ILogger<NotificacionService>? logger = null, IOptions<FuncionesOptions>? funciones = null, ICorreoSaliente? correo = null)
+        IRevisionAccesoService accesos, ILogger<NotificacionService>? logger = null, IOptions<FuncionesOptions>? funciones = null, ICorreoSaliente? correo = null,
+        IOptions<NotificacionesOptions>? opciones = null)
     {
         _db = db;
         _cache = cache;
@@ -52,6 +54,7 @@ public class NotificacionService : INotificacionService
         // Sin configuración (las pruebas arman el servicio a mano) el módulo cuenta como habilitado.
         _revisionAccesosHabilitada = funciones?.Value.RevisionAccesos ?? true;
         _correo = correo;
+        _horasVisiblesTrasLeer = Math.Max(0, opciones?.Value.HorasVisiblesTrasLeer ?? 24);
     }
 
     // Lo que «debería estar notificado» para una persona. Persistente = no se resuelve sola cuando deja de cumplirse
@@ -78,10 +81,16 @@ public class NotificacionService : INotificacionService
             DescartarCambiosPendientes();
         }
 
-        var desde = DateTime.UtcNow.AddDays(-DiasVisibleResultado);
+        var ahora = DateTime.UtcNow;
+        var desde = ahora.AddDays(-DiasVisibleResultado);
+        var leidasDesde = ahora.AddHours(-_horasVisiblesTrasLeer);
+        // Una leída (o abierta con un clic) sale de la campanita pasado el tiempo límite, salvo las «Pendiente»: esas
+        // son una tarea y siguen hasta que se resuelven. La fila NO se borra: la condición sigue vigente y, si se
+        // borrara, la próxima sincronización la volvería a crear como nueva y sin leer.
         var vigentes = _db.Notificaciones.AsNoTracking()
             .Where(n => n.UsuarioId == usuarioId && n.PaisId == paisId && !n.Resuelta
-                && (n.Categoria != CategoriaNotificacion.Resultado || n.FechaCreacion >= desde));
+                && (n.Categoria != CategoriaNotificacion.Resultado || n.FechaCreacion >= desde)
+                && (n.Categoria == CategoriaNotificacion.Pendiente || n.FechaLeida == null || n.FechaLeida >= leidasDesde));
 
         var noLeidas = await vigentes.CountAsync(n => n.FechaLeida == null, ct);
         var items = await vigentes
