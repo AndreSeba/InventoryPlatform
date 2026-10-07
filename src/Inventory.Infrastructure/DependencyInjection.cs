@@ -20,6 +20,14 @@ public static class DependencyInjection
 
         services.AddMemoryCache();
         services.Configure<Controles.ControlesOptions>(configuration.GetSection(Controles.ControlesOptions.SectionName));
+        services.Configure<Controles.FuncionesOptions>(configuration.GetSection(Controles.FuncionesOptions.SectionName));
+
+        // Correo saliente (apagado por defecto): la cola se llena desde NotificacionService y la vacía un servicio
+        // en segundo plano de la API (EnvioCorreoHostedService).
+        services.Configure<Correo.CorreoOptions>(configuration.GetSection(Correo.CorreoOptions.SectionName));
+        services.AddSingleton<Correo.ColaCorreo>();
+        services.AddSingleton<ICorreoSaliente>(sp => sp.GetRequiredService<Correo.ColaCorreo>());
+        services.AddSingleton<Correo.EnviadorSmtp>();
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
         services.AddSingleton<JwtTokenService>();
 

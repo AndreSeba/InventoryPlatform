@@ -289,6 +289,61 @@ public class NotificacionTests : IDisposable
     }
 
     [Fact]
+    public async Task RevisionDeAccesosApagada_NoGeneraAvisosDeEsaRevision()
+    {
+        var accesos = new RevisionAccesoService(_db, _auditoria, _cache, Options.Create(new ControlesOptions()));
+        var apagado = new NotificacionService(_db, _cache, new DevolucionService(_db, _auditoria), accesos, null,
+            Options.Create(new FuncionesOptions { RevisionAccesos = false }));
+
+        // con el módulo encendido (por defecto en las pruebas) el administrador sí recibe los avisos...
+        await _notificaciones.SincronizarAsync(PaisId, default);
+        Assert.Contains((await _notificaciones.ListarAsync(_admin.Id, PaisId, default)).Items, n => n.Titulo.StartsWith("Revisión de accesos"));
+
+        // ...y apagado se resuelven solos y no se vuelven a generar
+        await apagado.SincronizarAsync(PaisId, default);
+        Assert.DoesNotContain((await apagado.ListarAsync(_admin.Id, PaisId, default)).Items, n => n.Titulo.StartsWith("Revisión de accesos"));
+    }
+
+    private sealed class CorreoFalso : Inventory.Application.Interfaces.ICorreoSaliente
+    {
+        public List<Inventory.Application.Interfaces.MensajeCorreo> Enviados { get; } = [];
+        public void Encolar(Inventory.Application.Interfaces.MensajeCorreo m) => Enviados.Add(m);
+    }
+
+    [Fact]
+    public async Task Correo_SoloAvisaDeNoticiasPersonalesNuevas_UnaSolaVez()
+    {
+        var correo = new CorreoFalso();
+        var accesos = new RevisionAccesoService(_db, _auditoria, _cache, Options.Create(new ControlesOptions()));
+        var servicio = new NotificacionService(_db, _cache, new DevolucionService(_db, _auditoria), accesos, null, null, correo);
+
+        var s = await NuevaSolicitudAsync(EstadoSolicitud.Pendiente);
+        await servicio.SincronizarAsync(PaisId, default);
+
+        // «Solicitud por aprobar»: le llega a quien aprueba (el admin), no a quien la pidió ni al operario
+        var porAprobar = Assert.Single(correo.Enviados, m => m.Titulo == "Solicitud por aprobar");
+        Assert.Equal("admin@t.local", porAprobar.ParaEmail);
+        Assert.Contains(s.NumeroSolicitud, porAprobar.Mensaje);
+        Assert.StartsWith("[Inventario]", porAprobar.Asunto);
+        Assert.Equal($"/solicitudes/{s.Id}", porAprobar.Url);
+
+        // las alertas agregadas (sin stock, control de accesos...) NO salen por correo
+        Assert.DoesNotContain(correo.Enviados, m => m.Titulo.StartsWith("Revisión de accesos") || m.Titulo.StartsWith("Productos"));
+
+        // volver a sincronizar sin novedades no repite nada
+        var cantidad = correo.Enviados.Count;
+        await servicio.SincronizarAsync(PaisId, default);
+        Assert.Equal(cantidad, correo.Enviados.Count);
+
+        // al aprobarse: el solicitante recibe el resultado y el operario el «por entregar»
+        s.Estado = EstadoSolicitud.Aprobada; s.AprobadoPorId = _admin.Id; s.AprobadoPorNombre = _admin.Nombre; s.FechaResolucion = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        await servicio.SincronizarAsync(PaisId, default);
+        Assert.Contains(correo.Enviados, m => m.Titulo == "Tu solicitud fue aprobada" && m.ParaEmail == "sol@t.local");
+        Assert.Contains(correo.Enviados, m => m.Titulo == "Solicitud por entregar" && m.ParaEmail == "op@t.local");
+    }
+
+    [Fact]
     public async Task ConteoAbiertoHaceDias_AvisaAQuienCuenta()
     {
         _db.SesionesConteo.Add(new SesionConteo

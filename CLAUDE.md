@@ -435,7 +435,28 @@ que hacen las pruebas unitarias):
 - `RevisionTodosCadaDias` (90), `RevisionAdministradoresCadaDias` (30), `DiasSinActividad` (90): ver
   "Revisión de accesos".
 
-### Notificaciones (campanita, 2026-10-06)
+### Correo saliente (2026-10-07)
+
+Los avisos de la campanita también pueden salir por correo (MailKit/SMTP). **Apagado por defecto** (`Correo:Habilitado = false`).
+Diseño: `NotificacionService` encola un `MensajeCorreo` (`ICorreoSaliente`/`ColaCorreo`) SOLO para las noticias personales
+recién creadas — pendientes (por aprobar, por entregar, devolución por recibir), resultados (aprobada, rechazada, entregada,
+devolución recibida) y préstamo propio vencido/por vencer —, nunca para las alertas agregadas de inventario/control, y solo
+una vez por noticia (se envía al crearse, no al actualizarse). `EnvioCorreoHostedService` (API) vacía la cola por SMTP con un
+reintento y sin romper nada si falla; `SincronizacionNotificacionesHostedService` revisa las novedades cada
+`SincronizarCadaSegundos` (45) para avisar aunque nadie tenga el sistema abierto.
+- Configuración (sección `Correo`): `Host`/`Puerto`/`Seguridad` (StartTls | Ssl | Ninguna), `Usuario`, `Clave`, `RemitenteNombre`, `UrlBaseWeb` (botón
+  «Abrir en el sistema»). **La clave NUNCA va en appsettings**: `dotnet user-secrets set "Correo:Clave" "..."` (proyecto
+  `Inventory.Api`, `UserSecretsId` ya definido) o la variable de entorno `Correo__Clave`.
+- `DestinatarioDePrueba`: si tiene valor, TODOS los correos van a esa dirección (con «[Para Fulano]» en el asunto y un aviso en el
+  cuerpo). Imprescindible mientras los usuarios tengan emails ficticios (`@inventario.local`, como la base de demostración);
+  vaciarlo para que cada persona reciba el suyo.
+- `POST api/correo/prueba` (permiso `usuarios.gestionar`) manda un correo de prueba y devuelve el error de SMTP si falla.
+- Gmail: hace falta verificación en 2 pasos + «contraseña de aplicación»; SMTP `smtp.gmail.com:587` STARTTLS. Una red corporativa
+  puede bloquear el puerto 587.
+- Probado con pruebas unitarias (qué se encola, a quién, una sola vez); el envío SMTP real depende de las credenciales de cada
+  entorno y NO se probó contra un servidor real.
+
+
 
 `Notificacion` (una fila por PERSONA, con leída/no leída), `NotificacionService`, `api/notificaciones`
 (`GET` lista + contador, `POST {id}/leida`, `POST leidas`; sin policy de permiso: cada persona ve las suyas,
@@ -496,6 +517,16 @@ solicitante avisa, el operario solo registra la entrada»; sin aviso no hay devo
 - Probado: 12 pruebas unitarias (`DevolucionTests`) y el circuito completo contra SQL Server con
   `scratchpad/prueba_devoluciones.py` (33 verificaciones: permisos, aviso por tramos, cancelación, recepción
   parcial, no recibir dos veces, auditoría).
+
+### Módulos planificados: sección `Funciones` (2026-10-07)
+
+La **revisión de accesos está construida pero APAGADA** (`Funciones:RevisionAccesos = false` en `appsettings.json`,
+decisión del usuario: no se muestra en la reunión de hoy, queda «planificada»). Apagada: la campanita no genera
+avisos de revisión de accesos (los ya guardados se resuelven solos en la siguiente sincronización) y el frontend
+la muestra como «Planificado». Para habilitarla: poner `RevisionAccesos: true` en la API **y** en el frontend
+(`InventoryPlatform.Web/appsettings.json`, mismo nombre). El resto de la funcionalidad (API `api/revisiones-acceso`,
+permiso `accesos.revisar`, tablas) sigue intacta. Un módulo nuevo que se quiera mostrar «planificado» sigue el mismo
+patrón: opción booleana en `FuncionesOptions` + chequeo en el servicio que genere avisos.
 
 ### Revisión periódica de accesos (2026-10-06)
 
@@ -668,8 +699,10 @@ procedimiento en `docs/` y los dos `CLAUDE.md`. Se sube cuando el usuario diga "
       puede hacer el circuito: hacen falta 3 usuarios (quien pide / quien aprueba / quien entrega) o relajar
       `SeparacionDeFunciones` para la demo. **Sin aclarar qué significa «Registro»** en el pedido.
 - [ ] Limpiar datos de prueba antes de cualquier demo (movimientos de prueba, productos con costo 0).
-- [ ] Definir QUIÉN es la segunda persona con `accesos.revisar` (TI o un jefe): con un solo administrador no se
-      puede cerrar la revisión de su propia cuenta.
+- [ ] **Revisión de accesos: PLANIFICADA, apagada** (ver «Módulos planificados»). Antes de encenderla: definir QUIÉN es la
+      segunda persona con `accesos.revisar` (TI o un jefe): con un solo administrador no se puede cerrar la revisión de su
+      propia cuenta. El procedimiento (`docs/Procedimiento_Gestion_de_Accesos.docx`) y la respuesta al cuestionario de TI
+      dependen de ella: no declararla como implementada mientras esté apagada.
 
 ### Desarrollo pendiente
 - [ ] **SSO con Microsoft (Entra ID, OpenID Connect)** — trae contraseña, cambio de contraseña, MFA y bloqueo, que
@@ -696,6 +729,14 @@ procedimiento en `docs/` y los dos `CLAUDE.md`. Se sube cuando el usuario diga "
 - [ ] Notificaciones por correo en Solicitudes (ver sección «Pendiente: notificaciones por correo»).
 
 ### Operativo
+- [x] **Base de trabajo = el respaldo real (`InventoryReal`, LocalDB 2025 `(localdb)\MSSQLLocalDB`)** con la actividad de demostración
+      generada el 2026-10-07 (59 solicitudes, avisos de devolución, conteos, ajustes, entradas; fechas repartidas 22/09–07/10;
+      13 personas con roles reales). En ESTA PC la API de las vistas previas la usa por argumento de línea de comandos
+      (`.claude/launch.json`, fuera del repo); `appsettings*.json` NO se tocó (la laptop del trabajo usa los suyos).
+      Copias en `docs/demo/` (excluida de git): `InventoryReal_original.bak` (respaldo + migraciones, sin actividad nueva) y
+      `InventoryReal_demo.bak`; usuarios de demostración en `docs/demo/usuarios_demo.md`. Se generó con la API
+      (`scratchpad/generar_demo.py`), por eso respeta separación de funciones, auditoría y notificaciones. Las fechas se
+      reescribieron por SQL; los números (SOL-/MOV-) siguen el orden de creación, no el de fecha.
 - [ ] Laptop del trabajo: `git pull` en los dos repos, `dotnet ef database update` (migraciones `RevisionDeAccesos` y `AvisoDeDevolucion`;
       sin ella aparece «invalid object name») y volver a iniciar sesión (el permiso nuevo viaja en el token).
 - [ ] Quitar a mano los `Co-Authored-By` de los commits viejos (reescribir el historial lo hace el usuario).

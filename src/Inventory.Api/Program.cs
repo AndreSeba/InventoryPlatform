@@ -19,6 +19,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddHostedService<Inventory.Api.Servicios.EnvioCorreoHostedService>();
+builder.Services.AddHostedService<Inventory.Api.Servicios.SincronizacionNotificacionesHostedService>();
 
 builder.Services.AddExceptionHandler<ManejadorGlobalDeExcepciones>();
 builder.Services.AddProblemDetails();

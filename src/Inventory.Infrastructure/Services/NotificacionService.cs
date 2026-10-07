@@ -4,10 +4,12 @@ using Inventory.Application.Interfaces;
 using Inventory.Domain.Entities;
 using Inventory.Domain.Enums;
 using Inventory.Domain.Security;
+using Inventory.Infrastructure.Controles;
 using Inventory.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Inventory.Infrastructure.Services;
 
@@ -36,15 +38,20 @@ public class NotificacionService : INotificacionService
     private readonly IDevolucionService _devoluciones;
     private readonly IRevisionAccesoService _accesos;
     private readonly ILogger<NotificacionService>? _logger;
+    private readonly bool _revisionAccesosHabilitada;
+    private readonly ICorreoSaliente? _correo;
 
     public NotificacionService(InventoryDbContext db, IMemoryCache cache, IDevolucionService devoluciones,
-        IRevisionAccesoService accesos, ILogger<NotificacionService>? logger = null)
+        IRevisionAccesoService accesos, ILogger<NotificacionService>? logger = null, IOptions<FuncionesOptions>? funciones = null, ICorreoSaliente? correo = null)
     {
         _db = db;
         _cache = cache;
         _devoluciones = devoluciones;
         _accesos = accesos;
         _logger = logger;
+        // Sin configuración (las pruebas arman el servicio a mano) el módulo cuenta como habilitado.
+        _revisionAccesosHabilitada = funciones?.Value.RevisionAccesos ?? true;
+        _correo = correo;
     }
 
     // Lo que «debería estar notificado» para una persona. Persistente = no se resuelve sola cuando deja de cumplirse
@@ -334,8 +341,9 @@ public class NotificacionService : INotificacionService
     private async Task ControlAsync(Contexto ctx, List<Deseada> estados, CancellationToken ct)
     {
         // Revisión periódica de accesos vencida -> quienes revisan.
-        var accesos = await _accesos.ObtenerEstadoAsync(ctx.PaisId, ct);
-        if (accesos.AdministradoresVencida || accesos.TodosVencida)
+        // Módulo planificado y apagado: no se avisa nada de él (y lo ya guardado se resuelve solo en la sincronización).
+        var accesos = _revisionAccesosHabilitada ? await _accesos.ObtenerEstadoAsync(ctx.PaisId, ct) : null;
+        if (accesos is not null && (accesos.AdministradoresVencida || accesos.TodosVencida))
         {
             foreach (var uid in await ConPermisoAsync(ctx, Permisos.AccesosRevisar, ct))
             {
@@ -398,6 +406,7 @@ public class NotificacionService : INotificacionService
 
         var porClave = existentes.ToDictionary(n => (n.UsuarioId, n.Clave));
         var vistas = new HashSet<(int, string)>();
+        var nuevas = new List<Deseada>();
         var ahora = DateTime.UtcNow;
 
         foreach (var d in de)
@@ -420,6 +429,7 @@ public class NotificacionService : INotificacionService
             }
             else
             {
+                nuevas.Add(d);
                 _db.Notificaciones.Add(new Notificacion
                 {
                     PaisId = paisId, UsuarioId = d.UsuarioId, Clave = d.Clave, Categoria = d.Categoria, Severidad = d.Severidad,
@@ -440,6 +450,8 @@ public class NotificacionService : INotificacionService
         try
         {
             await _db.SaveChangesAsync(ct);
+            // Solo después de guardar: si hubo un choque, ese aviso lo manda quien lo creó primero.
+            EnviarCorreos(nuevas);
         }
         catch (DbUpdateException ex)
         {
@@ -447,6 +459,39 @@ public class NotificacionService : INotificacionService
             // próxima sincronización lo deja consistente.
             _logger?.LogDebug(ex, "Choque al sincronizar notificaciones «{Prefijo}»; se reintenta en el próximo ciclo.", prefijo);
             DescartarCambiosPendientes();
+        }
+    }
+
+    // Por correo solo salen las NOTICIAS PERSONALES recién creadas (algo por hacer, o lo que le pasó a lo que pidió, y el
+    // aviso de un préstamo propio); no las alertas agregadas de inventario o control, que serían ruido por correo.
+    private static bool AvisaPorCorreo(Deseada d) =>
+        d.Categoria is CategoriaNotificacion.Pendiente or CategoriaNotificacion.Resultado
+        || d.Clave.StartsWith("pres-mora:", StringComparison.Ordinal) || d.Clave.StartsWith("pres-vence:", StringComparison.Ordinal);
+
+    private void EnviarCorreos(List<Deseada> nuevas)
+    {
+        if (_correo is null) return;
+        try
+        {
+            var aEnviar = nuevas.Where(AvisaPorCorreo).ToList();
+            if (aEnviar.Count == 0) return;
+
+            var ids = aEnviar.Select(d => d.UsuarioId).Distinct().ToList();
+            var personas = _db.Usuarios.AsNoTracking()
+                .Where(u => ids.Contains(u.Id) && u.Activo)
+                .Select(u => new { u.Id, u.Email, u.NombreCompleto })
+                .ToDictionary(u => u.Id);
+
+            foreach (var d in aEnviar)
+            {
+                if (!personas.TryGetValue(d.UsuarioId, out var p) || !p.Email.Contains('@')) continue;
+                _correo.Encolar(new MensajeCorreo(p.Email, p.NombreCompleto, $"[Inventario] {d.Titulo}", d.Titulo, d.Mensaje, d.Url));
+            }
+        }
+        catch (Exception ex)
+        {
+            // El correo es un extra: nunca debe romper la sincronización de la campanita.
+            _logger?.LogWarning(ex, "No se pudieron encolar los correos de aviso.");
         }
     }
 
