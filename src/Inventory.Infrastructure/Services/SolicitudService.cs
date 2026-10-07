@@ -138,6 +138,7 @@ public class SolicitudService : ISolicitudService
             FechaSolicitud = DateTime.UtcNow,
             SolicitadoPorId = usuario.Id,
             SolicitadoPorNombre = usuario.Nombre,
+            FirmaSolicitanteId = await FirmaService.VersionActivaAsync(_db, usuario.Id, ct),
             // Provisorio ÚNICO (no "PENDIENTE" fijo): con una constante compartida, dos altas
             // simultáneas chocaban contra el índice único y una de cada dos daba 500.
             NumeroSolicitud = "TMP-" + Guid.NewGuid().ToString("N"),
@@ -247,10 +248,12 @@ public class SolicitudService : ISolicitudService
         // solo una lo logra y la otra recibe el error de estado (antes se aprobaba dos veces).
         await using var tx = await _db.Database.BeginTransactionAsync(ct);
         var ahora = DateTime.UtcNow;
+        var firmaAprobador = await FirmaService.VersionActivaAsync(_db, usuario.Id, ct);
         var filas = await _db.Solicitudes
             .Where(s => s.Id == id && s.Estado == EstadoSolicitud.Pendiente)
             .ExecuteUpdateAsync(u => u
                 .SetProperty(s => s.Estado, EstadoSolicitud.Aprobada)
+                .SetProperty(s => s.FirmaAprobadorId, firmaAprobador)
                 .SetProperty(s => s.AprobadoPorId, usuario.Id)
                 .SetProperty(s => s.AprobadoPorNombre, usuario.Nombre)
                 .SetProperty(s => s.FechaResolucion, ahora), ct);

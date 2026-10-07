@@ -50,6 +50,7 @@ public static class DependencyInjection
         services.AddScoped<IConteoService, ConteoService>();
         services.AddScoped<IRevisionAccesoService, RevisionAccesoService>();
         services.AddScoped<IDevolucionService, DevolucionService>();
+        services.AddScoped<IFirmaService, FirmaService>();
         services.AddScoped<INotificacionService, NotificacionService>();
         services.AddScoped<ISolicitudNotificationService, LoggingSolicitudNotificationService>();
 

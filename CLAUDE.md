@@ -564,6 +564,26 @@ decide por cada cuenta y la cierra. Trimestral para todas las cuentas y mensual 
   con `[corchetes]` de `RevisionAccesoConfiguration`, que entran en el mismo trabajo pendiente que el
   resto de las configuraciones.
 
+### Firma manuscrita por usuario (2026-10-07)
+
+Cada persona dibuja su firma (mouse, dedo o lápiz) en «Mi perfil» y se estampa sola en el formulario imprimible de las
+solicitudes que pidió o autorizó. Decisión del usuario: NO es una firma digital con certificado (nivel legal), es la imagen de la
+firma; el proveedor firma a mano en el papel (bloque vacío en el formulario).
+
+- `FirmaUsuario` (tabla propia, como `ProductoImagen`, nunca dentro de `Usuario`): PNG transparente + `Activa`. **Se guardan
+  versiones**: al guardar una nueva la anterior queda inactiva (índice único filtrado = una activa por persona); quitar la firma
+  también solo la desactiva. `Solicitud.FirmaSolicitanteId` / `FirmaAprobadorId` fijan la versión usada al CREAR y al APROBAR, así un
+  formulario reimpreso se ve igual aunque la persona cambie su firma. Si no tenía firma en ese momento se usa su firma activa de hoy.
+- `api/firma` (`GET`/`PUT`/`DELETE`, sin policy de permiso: cada quien SOLO la suya, el usuario sale del token). `PUT` exige la
+  **contraseña** (con la sesión abierta en una PC compartida nadie cambia la firma de otro): contraseña mala = **400, no 401** (un 401 en
+  el frontend se lee como sesión vencida), con freno de 5 intentos / 10 min por usuario (`IMemoryCache`). Valida que sea PNG por sus
+  primeros bytes, tope 300 KB y dimensiones desde el encabezado IHDR; que el dibujo no esté vacío lo comprueba el cliente.
+- `GET api/solicitudes/{id}/firmas`: mismas reglas de acceso que el detalle (quien ve todas, o el dueño). **La firma de quien autoriza
+  solo viaja si la solicitud está Aprobada / EntregadaParcial / Entregada** (nunca pendiente ni rechazada) y siempre es la de quien
+  realmente ejecutó la acción. La firma solo sale por aquí, nunca por un endpoint suelto por usuario.
+- Auditoría: entidad `FirmaUsuario`, acciones Registrar / Reemplazar / Eliminar (sin los bytes). Migración `FirmaManuscrita`. 7 pruebas
+  (`FirmaTests`).
+
 ### Power BI (docs/bi, 2026-10-04)
 
 `docs/bi/` trae las vistas de solo lectura del esquema `bi` (`01_vistas_bi.sql`, T-SQL), el tema, las medidas

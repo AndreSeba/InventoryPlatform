@@ -31,6 +31,9 @@ public class SolicitudConfiguration : IEntityTypeConfiguration<Solicitud>
             .HasForeignKey(s => s.AprobadoPorId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        builder.HasOne<FirmaUsuario>().WithMany().HasForeignKey(s => s.FirmaSolicitanteId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<FirmaUsuario>().WithMany().HasForeignKey(s => s.FirmaAprobadorId).OnDelete(DeleteBehavior.Restrict);
+
         // EstadoSolicitud.Rechazada = 4 — CK_Solicitud_Aprobacion (guía v4, 5.11):
         // una solicitud rechazada exige motivo.
         builder.ToTable(t => t.HasCheckConstraint(

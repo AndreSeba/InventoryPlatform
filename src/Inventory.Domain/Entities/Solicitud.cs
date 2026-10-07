@@ -30,5 +30,10 @@ public class Solicitud
     // Obligatorio si Estado = Rechazada (CK_Solicitud_Aprobacion de la guía v4).
     public string? MotivoRechazo { get; set; }
 
+    // Versión de la firma manuscrita (FirmaUsuario) con la que se firmó cada punta, fijada al crear / al aprobar. Null si esa
+    // persona todavía no tenía firma: en ese caso el formulario usa su firma activa actual (la acción igual la hizo ella).
+    public int? FirmaSolicitanteId { get; set; }
+    public int? FirmaAprobadorId { get; set; }
+
     public ICollection<SolicitudDetalle> Detalles { get; set; } = new List<SolicitudDetalle>();
 }

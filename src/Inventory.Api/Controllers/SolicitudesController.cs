@@ -13,8 +13,13 @@ namespace Inventory.Api.Controllers;
 public class SolicitudesController : ControllerBase
 {
     private readonly ISolicitudService _solicitudService;
+    private readonly IFirmaService _firmas;
 
-    public SolicitudesController(ISolicitudService solicitudService) => _solicitudService = solicitudService;
+    public SolicitudesController(ISolicitudService solicitudService, IFirmaService firmas)
+    {
+        _solicitudService = solicitudService;
+        _firmas = firmas;
+    }
 
     [HttpGet]
     [Authorize(Policy = Permisos.SolicitudesVer)]
@@ -46,6 +51,20 @@ public class SolicitudesController : ControllerBase
             return Forbid();
 
         return Ok(solicitud);
+    }
+
+    // Las firmas manuscritas del formulario imprimible: quien pidió y, si está aprobada, quien autorizó. Mismas reglas de
+    // acceso que el detalle (quien ve todas, o el dueño). Solo se devuelven con la acción realmente hecha por esa persona.
+    [HttpGet("{id:int}/firmas")]
+    [ProducesResponseType(typeof(FirmasSolicitudDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<FirmasSolicitudDto>> ObtenerFirmas(int id, CancellationToken ct)
+    {
+        var solicitud = await _solicitudService.ObtenerPorIdAsync(id, User.ObtenerPaisId(), ct);
+        if (!User.HasClaim("permiso", Permisos.SolicitudesVer) && solicitud.SolicitadoPorId != UsuarioActual().Id)
+            return Forbid();
+        return Ok(await _firmas.ObtenerDeSolicitudAsync(id, User.ObtenerPaisId(), ct));
     }
 
     [HttpPost]
