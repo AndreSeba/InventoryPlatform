@@ -308,6 +308,341 @@ namespace Inventory.Infrastructure.Migrations
                     b.ToTable("Categoria", (string)null);
                 });
 
+            modelBuilder.Entity("Inventory.Domain.Entities.ConteoExternoAlmacen", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Activo")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Codigo")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<int>("PaisId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PaisId", "Codigo")
+                        .IsUnique()
+                        .HasFilter("[Activo] = 1");
+
+                    b.ToTable("ConteoExternoAlmacen", (string)null);
+                });
+
+            modelBuilder.Entity("Inventory.Domain.Entities.ConteoExternoExistencia", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Activo")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("AlmacenCodigo")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<decimal>("CantidadSistema")
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<int>("ConteoExternoProductoId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreadoEn")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Lote")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<int>("PaisId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConteoExternoProductoId");
+
+                    b.HasIndex("PaisId", "ConteoExternoProductoId", "AlmacenCodigo");
+
+                    b.ToTable("ConteoExternoExistencia", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ConteoExternoExistencia_Cantidad", "[CantidadSistema] >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Inventory.Domain.Entities.ConteoExternoLinea", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AlmacenCodigo")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<int>("ConteoExternoExistenciaId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ConteoExternoProductoId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ConteoExternoSesionId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("CostoUnitario")
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<decimal>("ExistenciaSistema")
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<string>("Familia")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Lote")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("Observacion")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("ProductoCodigo")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("ProductoNombre")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("UnidadCodigo")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConteoExternoExistenciaId");
+
+                    b.HasIndex("ConteoExternoSesionId", "ConteoExternoExistenciaId")
+                        .IsUnique();
+
+                    b.ToTable("ConteoExternoLinea", (string)null);
+                });
+
+            modelBuilder.Entity("Inventory.Domain.Entities.ConteoExternoProducto", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Activo")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Codigo")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("CodigoNormalizado")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<decimal?>("CostoReferencia")
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<DateTime>("CreadoEn")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Familia")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("Origen")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PaisId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("UnidadCodigo")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PaisId", "CodigoNormalizado")
+                        .IsUnique()
+                        .HasFilter("[Activo] = 1");
+
+                    b.HasIndex("PaisId", "Familia");
+
+                    b.ToTable("ConteoExternoProducto", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ConteoExternoProducto_CostoNoNegativo", "[CostoReferencia] IS NULL OR [CostoReferencia] >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Inventory.Domain.Entities.ConteoExternoRegistro", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("Cantidad")
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<int>("ContadoPorId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ContadoPorNombre")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<int>("ConteoExternoLineaId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("FechaConteo")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("NumeroConteo")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Ubicacion")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ContadoPorId");
+
+                    b.HasIndex("ConteoExternoLineaId", "NumeroConteo", "Ubicacion")
+                        .IsUnique();
+
+                    b.ToTable("ConteoExternoRegistro", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ConteoExternoRegistro_Numero", "[NumeroConteo] >= 1 AND [NumeroConteo] <= 4");
+                        });
+                });
+
+            modelBuilder.Entity("Inventory.Domain.Entities.ConteoExternoSesion", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("CerradoPorId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CerradoPorNombre")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<DateTime>("CreadoEn")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("CreadoPorId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CreadoPorNombre")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<int>("Estado")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("FechaCierre")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<int>("PaisId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CerradoPorId");
+
+                    b.HasIndex("CreadoPorId");
+
+                    b.HasIndex("PaisId");
+
+                    b.ToTable("ConteoExternoSesion", (string)null);
+                });
+
+            modelBuilder.Entity("Inventory.Domain.Entities.ConteoExternoUnidad", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Activo")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Codigo")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<int>("DecimalesPermitidos")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PaisId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PaisId", "Codigo")
+                        .IsUnique()
+                        .HasFilter("[Activo] = 1");
+
+                    b.ToTable("ConteoExternoUnidad", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ConteoExternoUnidad_Decimales", "[DecimalesPermitidos] >= 0 AND [DecimalesPermitidos] <= 4");
+                        });
+                });
+
             modelBuilder.Entity("Inventory.Domain.Entities.FirmaUsuario", b =>
                 {
                     b.Property<int>("Id")
@@ -856,6 +1191,20 @@ namespace Inventory.Infrastructure.Migrations
                             Codigo = "devoluciones.avisar",
                             Descripcion = "Ver el material prestado a nombre propio y avisar su devolución",
                             Modulo = "Movimientos"
+                        },
+                        new
+                        {
+                            Id = 40,
+                            Codigo = "conteoexterno.ver",
+                            Descripcion = "Ver el catálogo propio, existencias y sesiones del módulo de conteo externo",
+                            Modulo = "Conteo Externo"
+                        },
+                        new
+                        {
+                            Id = 41,
+                            Codigo = "conteoexterno.gestionar",
+                            Descripcion = "Crear y editar catálogo, existencias y sesiones del módulo de conteo externo",
+                            Modulo = "Conteo Externo"
                         });
                 });
 
@@ -1419,6 +1768,16 @@ namespace Inventory.Infrastructure.Migrations
                         },
                         new
                         {
+                            RolId = 1,
+                            PermisoId = 40
+                        },
+                        new
+                        {
+                            RolId = 1,
+                            PermisoId = 41
+                        },
+                        new
+                        {
                             RolId = 2,
                             PermisoId = 27
                         },
@@ -1786,6 +2145,16 @@ namespace Inventory.Infrastructure.Migrations
                         {
                             RolId = 5,
                             PermisoId = 39
+                        },
+                        new
+                        {
+                            RolId = 5,
+                            PermisoId = 40
+                        },
+                        new
+                        {
+                            RolId = 5,
+                            PermisoId = 41
                         },
                         new
                         {
@@ -2524,6 +2893,122 @@ namespace Inventory.Infrastructure.Migrations
                     b.Navigation("Pais");
                 });
 
+            modelBuilder.Entity("Inventory.Domain.Entities.ConteoExternoAlmacen", b =>
+                {
+                    b.HasOne("Inventory.Domain.Entities.Pais", "Pais")
+                        .WithMany()
+                        .HasForeignKey("PaisId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Pais");
+                });
+
+            modelBuilder.Entity("Inventory.Domain.Entities.ConteoExternoExistencia", b =>
+                {
+                    b.HasOne("Inventory.Domain.Entities.ConteoExternoProducto", "ConteoExternoProducto")
+                        .WithMany()
+                        .HasForeignKey("ConteoExternoProductoId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Inventory.Domain.Entities.Pais", "Pais")
+                        .WithMany()
+                        .HasForeignKey("PaisId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ConteoExternoProducto");
+
+                    b.Navigation("Pais");
+                });
+
+            modelBuilder.Entity("Inventory.Domain.Entities.ConteoExternoLinea", b =>
+                {
+                    b.HasOne("Inventory.Domain.Entities.ConteoExternoExistencia", "ConteoExternoExistencia")
+                        .WithMany()
+                        .HasForeignKey("ConteoExternoExistenciaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Inventory.Domain.Entities.ConteoExternoSesion", "ConteoExternoSesion")
+                        .WithMany("Lineas")
+                        .HasForeignKey("ConteoExternoSesionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ConteoExternoExistencia");
+
+                    b.Navigation("ConteoExternoSesion");
+                });
+
+            modelBuilder.Entity("Inventory.Domain.Entities.ConteoExternoProducto", b =>
+                {
+                    b.HasOne("Inventory.Domain.Entities.Pais", "Pais")
+                        .WithMany()
+                        .HasForeignKey("PaisId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Pais");
+                });
+
+            modelBuilder.Entity("Inventory.Domain.Entities.ConteoExternoRegistro", b =>
+                {
+                    b.HasOne("Inventory.Domain.Entities.Usuario", "ContadoPor")
+                        .WithMany()
+                        .HasForeignKey("ContadoPorId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Inventory.Domain.Entities.ConteoExternoLinea", "ConteoExternoLinea")
+                        .WithMany("Registros")
+                        .HasForeignKey("ConteoExternoLineaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ContadoPor");
+
+                    b.Navigation("ConteoExternoLinea");
+                });
+
+            modelBuilder.Entity("Inventory.Domain.Entities.ConteoExternoSesion", b =>
+                {
+                    b.HasOne("Inventory.Domain.Entities.Usuario", "CerradoPor")
+                        .WithMany()
+                        .HasForeignKey("CerradoPorId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Inventory.Domain.Entities.Usuario", "CreadoPor")
+                        .WithMany()
+                        .HasForeignKey("CreadoPorId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Inventory.Domain.Entities.Pais", "Pais")
+                        .WithMany()
+                        .HasForeignKey("PaisId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CerradoPor");
+
+                    b.Navigation("CreadoPor");
+
+                    b.Navigation("Pais");
+                });
+
+            modelBuilder.Entity("Inventory.Domain.Entities.ConteoExternoUnidad", b =>
+                {
+                    b.HasOne("Inventory.Domain.Entities.Pais", "Pais")
+                        .WithMany()
+                        .HasForeignKey("PaisId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Pais");
+                });
+
             modelBuilder.Entity("Inventory.Domain.Entities.FirmaUsuario", b =>
                 {
                     b.HasOne("Inventory.Domain.Entities.Usuario", "Usuario")
@@ -2894,6 +3379,16 @@ namespace Inventory.Infrastructure.Migrations
                     b.Navigation("Pais");
 
                     b.Navigation("Rol");
+                });
+
+            modelBuilder.Entity("Inventory.Domain.Entities.ConteoExternoLinea", b =>
+                {
+                    b.Navigation("Registros");
+                });
+
+            modelBuilder.Entity("Inventory.Domain.Entities.ConteoExternoSesion", b =>
+                {
+                    b.Navigation("Lineas");
                 });
 
             modelBuilder.Entity("Inventory.Domain.Entities.Permiso", b =>
