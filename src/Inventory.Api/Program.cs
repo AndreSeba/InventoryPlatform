@@ -124,6 +124,17 @@ catch (Exception ex)
     app.Logger.LogWarning(ex, "No se pudo sembrar el usuario admin inicial (¿falta la base de datos?).");
 }
 
+// Datos iniciales del módulo Conteo Externo (unidades, almacenes y catálogo de Fagal, solo Bolivia y solo si
+// todavía no hay nada cargado). Separado del seed anterior: si falla, no tumba nada.
+try
+{
+    await ConteoExternoSemilla.SembrarAsync(app.Services);
+}
+catch (Exception ex)
+{
+    app.Logger.LogWarning(ex, "No se pudieron sembrar los datos iniciales de Conteo Externo (¿falta la migración ConteoExterno?).");
+}
+
 // Si el código es más nuevo que la base, las consultas fallan o (peor) van lentas porque el
 // esquema viejo guarda cosas como la foto de cada producto dentro de su fila. Avisarlo al
 // arrancar ahorra buscar el problema en otro lado.

@@ -6,6 +6,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Catálogo inicial del módulo Conteo Externo (414 códigos de la hoja «Base Datos» de Fagal). -->
+    <EmbeddedResource Include="Seed\ConteoExternoProductosSemilla.csv" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
     <PackageReference Include="ClosedXML" Version="0.105.1" />
     <PackageReference Include="MailKit" Version="4.18.1" />

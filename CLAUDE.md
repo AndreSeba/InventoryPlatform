@@ -891,6 +891,17 @@ escritorio (ver `FLUJO_CONTEO_PARA_INVENTORYPLATFORM.md` en el repo `AndreSeba/c
   `tblKPI/tblLotes/tblConteos`. Y la **decisión de costo** (único por producto vs por almacén) sigue sin confirmar
   con Pablo Burgos.
 
+**Datos iniciales por defecto (2026-10-15)** — `ConteoExternoSemilla` (`Inventory.Infrastructure/Seed/`), llamado
+al arrancar la API tras el seed del admin (en su propio `try`, no tumba el arranque). Trae lo mismo que la app de
+escritorio de Fagal: **unidades** `CAJ`=2, `PACK`=2, `KG`=3 decimales, los **8 almacenes de fábrica** con su nombre
+(103001, 103002, 103003, 103004, 103014, 103015, 103023, 103024) y el **catálogo «Base Datos»** (414 códigos únicos;
+CSV embebido en `Seed/ConteoExternoProductosSemilla.csv`, `Origen = BaseDatos`, sin unidad ni costo: se fijan con el
+primer lote / al importar). **Solo Bolivia (`BO`) y cada bloque solo si ese país no tiene ninguno de ese tipo**:
+nunca pisa ni duplica lo que el usuario ya cargó. No es `HasData` (son datos editables por el usuario, no
+constantes). Los códigos de la Tienda NESTLÉ (103020, 103025) no se siembran: no son de Fagal. Tests:
+`ConteoExternoSemillaTests`. En la pantalla de importación el mapeo de columnas se **propone solo** por el nombre del
+encabezado (`Importar.razor`); sigue siendo editable.
+
 ### Más tipos de Ubicación además de Rack/Mueble (consultado 2026-09-14, no implementado)
 
 > El usuario preguntó si valía la pena poder agregar más tipos de ubicación a futuro.
