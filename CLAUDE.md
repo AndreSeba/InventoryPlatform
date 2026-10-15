@@ -654,6 +654,35 @@ del sistema:
 - **Sin verificar por compilación todavía** — sin SDK de .NET en el entorno donde se
   escribió.
 
+**Fase 2 (existencias — alta manual)** — entidad `ConteoExternoExistencia`
+(`src/Inventory.Domain/Entities/ConteoExterno/`), también `PaisId`-scoped. Se adelantó
+también la entidad `ConteoExternoAlmacen` (Fase 6) con lo mínimo (entidad + configuración
++ `DbSet`, sin servicio/controller/frontend todavía) porque `ConteoExternoExistenciaService`
+ya necesita resolver el nombre de almacén para mostrar.
+
+- **`AlmacenCodigo` es texto libre** — el nombre de almacén (Fase 6) es solo para
+  mostrar, nunca reemplaza este código.
+- **La unidad del producto se fija con el primer lote de existencia, nunca antes**:
+  `ConteoExternoExistenciaService.CrearAsync` exige `UnidadCodigo` y, si
+  `ConteoExternoProducto.UnidadCodigo` todavía es `null`, lo fija ahí mismo; si ya
+  estaba fijado y el código no coincide, rechaza con
+  `UnidadConteoExternoProductoYaFijadaException` (409). Por eso `ConteoExternoExistencia`
+  no guarda su propia unidad: siempre se lee desde `ConteoExternoProducto.UnidadCodigo`.
+- **`CantidadConteoExterno.Validar`** (`Inventory.Application`, NO en `Inventory.Domain`
+  — ese proyecto no puede depender de `Inventory.Application.Exceptions`): rechaza
+  negativos y más decimales de los que permite `ConteoExternoUnidad.DecimalesPermitidos`
+  de esa unidad. `decimal`, nunca `float`.
+- **Sin costo propio por línea** — ver la nota de costo único por producto en la Fase 1.
+- **"Eliminar" es `Activo = false`** — `ActualizarAsync` es la única forma de editar
+  cantidad/estado; producto/almacén/lote son la identidad de la línea y no se editan
+  (desactivar y crear una nueva si están mal).
+- **Frontend**: `/conteo-externo/existencias`, filtro por producto y por almacén
+  (texto). El selector de "Producto" en el alta muestra la unidad ya fijada entre
+  paréntesis si la tiene.
+- **Migración pendiente de generar** (junto con la de Fase 1 si no se generó ninguna
+  todavía): `dotnet ef migrations add ConteoExternoFase2 --project src/Inventory.Infrastructure --startup-project src/Inventory.Api`.
+- **Sin verificar por compilación todavía.**
+
 ### Más tipos de Ubicación además de Rack/Mueble (consultado 2026-09-14, no implementado)
 
 > El usuario preguntó si valía la pena poder agregar más tipos de ubicación a futuro.

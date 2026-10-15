@@ -31,6 +31,8 @@ public class InventoryDbContext : DbContext
     // Módulo de conteo independiente — catálogo propio (ver CLAUDE.md).
     public DbSet<ConteoExternoUnidad> ConteoExternoUnidades => Set<ConteoExternoUnidad>();
     public DbSet<ConteoExternoProducto> ConteoExternoProductos => Set<ConteoExternoProducto>();
+    public DbSet<ConteoExternoExistencia> ConteoExternoExistencias => Set<ConteoExternoExistencia>();
+    public DbSet<ConteoExternoAlmacen> ConteoExternoAlmacenes => Set<ConteoExternoAlmacen>();
 
     public DbSet<Usuario> Usuarios => Set<Usuario>();
     public DbSet<Rol> Roles => Set<Rol>();
