@@ -683,6 +683,85 @@ ya necesita resolver el nombre de almacén para mostrar.
   todavía): `dotnet ef migrations add ConteoExternoFase2 --project src/Inventory.Infrastructure --startup-project src/Inventory.Api`.
 - **Sin verificar por compilación todavía.**
 
+**Fase 3 (sesión + conteo) y Fase 4 (KPIs)** — se hicieron juntas: comparten el mismo
+acceso a datos (sesión → líneas → registros) y separarlas en dos pasadas de servicio
+solo habría significado volver a leer lo mismo dos veces. Entidades
+`ConteoExternoSesion`/`ConteoExternoLinea`/`ConteoExternoRegistro`
+(`src/Inventory.Domain/Entities/ConteoExterno/`), todas alcanzadas transitivamente por
+`PaisId` a través de la sesión.
+
+- **Selección por criterio, no producto por producto — a propósito, al revés que el
+  conteo físico general (`SesionConteo`)**: `CrearConteoExternoSesionDto` recibe
+  `Nombre`/`Familia?`/`AlmacenCodigo?` y la sesión toma **todas** las existencias
+  activas que coincidan (sin filtro = todo el catálogo). El conteo general exige
+  elegir cada producto a mano porque es sobre un conjunto acotado; este módulo nace de
+  una herramienta de conteo masivo por almacén/familia completo, así que el filtro por
+  criterio es el flujo real, no un atajo. Si no hay ninguna existencia que coincida,
+  `ConteoExternoSesionSinExistenciasException` (no se crea una sesión vacía).
+- **La línea es una foto fija de la existencia, con `CostoUnitario` congelado al crear
+  la sesión** (`producto.CostoReferencia ?? 0m`) — si el costo del producto cambia
+  después, las sesiones viejas no se recalculan solas; es la misma lógica de "foto
+  fija" que `SesionConteoLinea.ExistenciaSistema` en el conteo general.
+  `ConteoExternoLinea` también copia `ProductoCodigo`/`ProductoNombre`/`Familia`/
+  `AlmacenCodigo`/`Lote`/`UnidadCodigo` al momento de crear, para que un reporte viejo
+  no cambie si el catálogo se edita después; `ConteoExternoExistenciaId` queda solo
+  como trazabilidad, no se vuelve a leer para mostrar.
+- **Hasta 4 "números de conteo" por línea, cada uno con varias ubicaciones libres
+  (texto, no catálogo)**: `ConteoExternoRegistro.MaxConteos = 4`,
+  `ConteoExternoRegistro.LargoMaxUbicacion = 40`. Es el mismo patrón que la app de
+  escritorio portada: un operario cuenta, un segundo recuenta si hay diferencia, y así
+  hasta 4 veces; cada número de conteo es la suma de sus propias ubicaciones (ej.
+  "pasillo 3" + "pasillo 4"), nunca la suma entre números de conteo distintos.
+- **"Conteo vigente" = el número más alto que tenga al menos una fila cargada** — los
+  números anteriores quedan como respaldo/historial, **nunca se suman entre sí**. Si
+  el conteo 3 tiene algo, vale el 3 (aunque el 1 y el 2 también tengan datos); si
+  ninguno tiene nada, la línea está "sin contar". `ConteoExternoSesionService.CalcularVigente`
+  es el único lugar que implementa esta regla — no reimplementarla en el frontend.
+- **`RegistrarConteoAsync` reemplaza TODAS las filas de ESE número de conteo en esa
+  línea** (`Dictionary<string, decimal?> Cantidades`, clave = ubicación) — no es un
+  alta incremental: guardar de nuevo con menos ubicaciones borra las que ya no están.
+  Pensado para que la grilla del frontend mande siempre su estado completo. El
+  frontend dedupe/normaliza ubicaciones antes de mandar (ver nota de la trampa del
+  `Dictionary` abajo).
+- **Cerrar sesión** (`CerrarAsync`): mismo patrón atómico que el resto del sistema —
+  un `ExecuteUpdateAsync(... .Where(s => s.Id == id && s.Estado == EnCurso))`; si
+  afecta 0 filas, ya la cerró otro. Exige que **todas** las líneas tengan al menos un
+  registro (`ValidacionException` 400, "faltan N línea(s) por contar", no una
+  excepción propia del módulo). Cerrada es inmutable: no se puede volver a registrar
+  un conteo ni editar la observación.
+- **KPIs** (`KpiConteoExterno`/`KpiConteoExternoCalculador`, `Inventory.Application` —
+  no en `Domain`, mismo motivo de capas que `CantidadConteoExterno`): IRA por lote
+  (`1 - diferentes/total`, por cada combinación producto+almacén+lote), IRA por código
+  (un código "está correcto" si la suma neta en Bs de TODOS sus lotes/almacenes da
+  exactamente 0 — por eso el costo tiene que ser único por producto, ver Fase 1/2:
+  con costo por almacén, un código podría "netear 0 en Bs" sin netear 0 en unidades, y
+  el KPI mentiría), valor total del inventario, diferencia neta en Bs, exactitud de
+  valor, cantidad de líneas sin contar. Mismas fórmulas que la app de escritorio
+  portada, sin cambios.
+- **Export a Excel** (`ExportarKpisExcelAsync`, ClosedXML): un bloque resumen de KPIs
+  arriba + una tabla de detalle por línea abajo, mismo archivo
+  (`ConteoExterno_KPIs_Sesion_{id}.xlsx`), descargado desde el frontend con el patrón
+  ya existente `descargarArchivo` (`wwwroot/js/descargas.js`, el mismo que usa la
+  evidencia del conteo general y el acta de revisión de accesos) — no se escribió JS
+  nuevo para esto.
+- **Historial multi-sesión** (`ObtenerHistorialKpisAsync`): lista los KPIs de todas las
+  sesiones (cerradas y en curso) para comparar en el tiempo — pantalla
+  `/conteo-externo/kpis`.
+- **Frontend**: `/conteo-externo/sesiones` (listado + diálogo de creación por
+  criterio), `/conteo-externo/sesiones/{id}` (panel de KPIs + tabla de líneas +
+  diálogo de "Contar" con selector de número de conteo 1–4 y filas dinámicas de
+  ubicación/cantidad + botón de cierre + descarga de Excel), `/conteo-externo/kpis`
+  (historial). **Trampa evitada en el diálogo de "Contar"**: las filas de
+  ubicación/cantidad se vuelcan a un diccionario con un indexador en un loop
+  (`cantidades[fila.Ubicacion] = fila.Cantidad`), nunca con `.ToDictionary(...)` — dos
+  filas con la misma ubicación (por ejemplo ambas en blanco, recién agregadas) tiran
+  `ArgumentException` con `.ToDictionary` y rompen el diálogo del lado del cliente; con
+  el indexador la última gana, sin excepción.
+- **Migración pendiente de generar** (junto con las anteriores si todavía no se generó
+  ninguna):
+  `dotnet ef migrations add ConteoExternoFase3y4 --project src/Inventory.Infrastructure --startup-project src/Inventory.Api`.
+- **Sin verificar por compilación todavía.**
+
 ### Más tipos de Ubicación además de Rack/Mueble (consultado 2026-09-14, no implementado)
 
 > El usuario preguntó si valía la pena poder agregar más tipos de ubicación a futuro.

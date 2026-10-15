@@ -57,6 +57,7 @@ public static class DependencyInjection
         services.AddScoped<IConteoExternoUnidadService, ConteoExternoUnidadService>();
         services.AddScoped<IConteoExternoProductoService, ConteoExternoProductoService>();
         services.AddScoped<IConteoExternoExistenciaService, ConteoExternoExistenciaService>();
+        services.AddScoped<IConteoExternoSesionService, ConteoExternoSesionService>();
 
         return services;
     }

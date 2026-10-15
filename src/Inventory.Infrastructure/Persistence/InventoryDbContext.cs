@@ -33,6 +33,9 @@ public class InventoryDbContext : DbContext
     public DbSet<ConteoExternoProducto> ConteoExternoProductos => Set<ConteoExternoProducto>();
     public DbSet<ConteoExternoExistencia> ConteoExternoExistencias => Set<ConteoExternoExistencia>();
     public DbSet<ConteoExternoAlmacen> ConteoExternoAlmacenes => Set<ConteoExternoAlmacen>();
+    public DbSet<ConteoExternoSesion> ConteoExternoSesiones => Set<ConteoExternoSesion>();
+    public DbSet<ConteoExternoLinea> ConteoExternoLineas => Set<ConteoExternoLinea>();
+    public DbSet<ConteoExternoRegistro> ConteoExternoRegistros => Set<ConteoExternoRegistro>();
 
     public DbSet<Usuario> Usuarios => Set<Usuario>();
     public DbSet<Rol> Roles => Set<Rol>();
