@@ -54,6 +54,9 @@ public static class DependencyInjection
         services.AddScoped<INotificacionService, NotificacionService>();
         services.AddScoped<ISolicitudNotificationService, LoggingSolicitudNotificationService>();
 
+        services.AddScoped<IConteoExternoUnidadService, ConteoExternoUnidadService>();
+        services.AddScoped<IConteoExternoProductoService, ConteoExternoProductoService>();
+
         return services;
     }
 }

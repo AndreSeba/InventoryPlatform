@@ -589,6 +589,71 @@ firma; el proveedor firma a mano en el papel (bloque vacío en el formulario).
 DAX y una guía. No tocan ninguna tabla de la aplicación; se vuelven a crear con `CREATE OR ALTER`. Si se
 agrega una vista para un módulo nuevo (por ejemplo la revisión de accesos), va ahí.
 
+### Módulo de conteo independiente (iniciado 2026-10-15, pedido explícito del usuario)
+
+> El usuario pidió portar la lógica de una app de escritorio propia de conteo físico
+> (Python/Tkinter/SQLite, para una fábrica) a `InventoryPlatform`, pero **como módulo
+> totalmente aparte**: no toca `Producto`, `Movimiento`, `SolicitudDetalle` ni
+> `SesionConteo`. Tiene su propio catálogo de productos, su propio catálogo de
+> unidades (con decimales permitidos por unidad), y en las fases siguientes su propio
+> modelo de existencias/almacenes y de sesión de conteo con KPIs (IRA por lote, IRA
+> por código, valor/diferencia en Bs, historial multi-sesión).
+>
+> **Nombrado de forma genérica a propósito (2026-10-15, pedido explícito del
+> usuario)**: el prefijo en el código es `ConteoExterno`, no el nombre del cliente ni
+> del proyecto original — así, si algún día este sistema se reusa como base para otro
+> cliente, el módulo no queda pegado a un nombre propio. "Conteo Externo" describe el
+> concepto (reconciliar contra un stock cuyo origen es un sistema externo, vía Excel),
+> no una marca.
+
+**Plan de 6 fases:**
+1. Catálogo propio + unidades propias del módulo — **Fase 1, esta sección**.
+2. Existencias — alta manual (almacén, lote, cantidad; costo único por producto).
+3. Sesión + conteo: hasta 4 "números de conteo" por línea, cada uno sumando varias
+   ubicaciones libres; cerrar sesión; observación.
+4. KPIs: motor + pantalla + export a Excel.
+5. Importación desde Excel (asistente de mapeo de columnas) — con detección de
+   códigos nuevos y oferta de agregarlos al catálogo al vuelo.
+6. Nombres de almacén (solo nombres — ver nota de costo abajo).
+
+**Fase 1 (catálogo + unidades)** — entidades `ConteoExternoProducto`/`ConteoExternoUnidad`
+(`src/Inventory.Domain/Entities/ConteoExterno/`), ambas `PaisId`-scoped como el resto
+del sistema:
+
+- **`CodigoConteoExterno.Normalizar`**: mayúsculas + sin ceros a la izquierda. El
+  código se **guarda tal cual se escribió** (`ConteoExternoProducto.Codigo`);
+  `CodigoNormalizado` es una columna aparte, solo para comparar y detectar duplicados
+  ("10101105" y "010101105" son el mismo producto — un Excel de origen puede comerse
+  el cero inicial al exportar). El índice único es sobre `(PaisId, CodigoNormalizado)`,
+  filtrado por `Activo`.
+- **`ConteoExternoProducto.UnidadCodigo`/`CostoReferencia` quedan `null` al crear el
+  producto, a propósito**: la unidad se fija recién con el primer lote de existencia
+  (Fase 2) y el costo se completa ahí o al importar. Pedirlos en el alta produciría
+  una unidad "adivinada" que después no coincide.
+- **`ConteoExternoProducto.Codigo` es inmutable** — moverle existencias/costos a un
+  código nuevo es un caso que esta Fase 1 no necesita, porque Existencias no existe
+  todavía. Si hace falta corregir un código mal escrito: desactivar y crear uno nuevo.
+- **`ConteoExternoUnidad.DecimalesPermitidos`** (0 a 4, con CHECK de respaldo): se usa
+  para validar cantidades en las fases siguientes, todavía no en esta fase.
+- **Costo único por producto, no por almacén — decisión explícita del usuario
+  (2026-10-15)**: un costo que varía por almacén puede hacer que un código "neteé 0 en
+  Bs" sin "netear 0 en unidades", lo que rompe la lectura del IRA por código (ver Fase
+  4). Por eso **ninguna entidad de este módulo tiene un costo por almacén/lote** — solo
+  `ConteoExternoProducto.CostoReferencia`.
+- **Un solo par de permisos para todo el módulo**: `conteoexterno.ver` /
+  `conteoexterno.gestionar` (agregados al final del catálogo), en vez de un
+  Ver/Crear/Editar por entidad — es un módulo chico y autocontenido. Solo
+  Administrador lo tiene seedeado; si otro rol lo necesita, se agrega desde `/roles`.
+- `ConteoExternoProductoService`/`ConteoExternoUnidadService` siguen el patrón estándar
+  (`IAuditoriaService` inyectado, `UsuarioActuante`, `Validacion.Texto`/`TextoOpcional`).
+- **Frontend**: `/conteo-externo/catalogo` y `/conteo-externo/unidades`
+  (`Components/Pages/ConteoExterno/`), sección de rail propia "Conteo Externo".
+  `ConteoExternoProductoApiClient`/`ConteoExternoUnidadApiClient` nuevos.
+- **Migración pendiente de generar**:
+  `dotnet ef migrations add ConteoExternoFase1 --project src/Inventory.Infrastructure --startup-project src/Inventory.Api`.
+- **Sin verificar por compilación todavía** — sin SDK de .NET en el entorno donde se
+  escribió.
+
 ### Más tipos de Ubicación además de Rack/Mueble (consultado 2026-09-14, no implementado)
 
 > El usuario preguntó si valía la pena poder agregar más tipos de ubicación a futuro.

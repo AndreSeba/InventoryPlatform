@@ -61,6 +61,13 @@ public static class Permisos
     public const string AccesosRevisar = "accesos.revisar";
     public const string DevolucionesAvisar = "devoluciones.avisar";
 
+    // Módulo de conteo independiente (catálogo propio, existencias, sesiones, KPIs,
+    // importación, almacenes — ver CLAUDE.md). Un solo par Ver/Gestionar para todo el
+    // módulo, no un Ver/Crear/Editar por entidad — es un módulo chico y autocontenido,
+    // no un catálogo compartido por el resto del sistema.
+    public const string ConteoExternoVer = "conteoexterno.ver";
+    public const string ConteoExternoGestionar = "conteoexterno.gestionar";
+
     public static readonly IReadOnlyList<(string Codigo, string Modulo, string Descripcion)> Catalogo =
     [
         (ProductosVer, "Productos", "Ver el catálogo de productos y su existencia"),
@@ -128,5 +135,10 @@ public static class Permisos
 
         // Agregado 2026-10-06 (avisos de devolución), al final por el mismo motivo.
         (DevolucionesAvisar, "Movimientos", "Ver el material prestado a nombre propio y avisar su devolución"),
+
+        // Agregados para el módulo de conteo independiente, al final por el mismo
+        // motivo de siempre.
+        (ConteoExternoVer, "Conteo Externo", "Ver el catálogo propio, existencias y sesiones del módulo de conteo externo"),
+        (ConteoExternoGestionar, "Conteo Externo", "Crear y editar catálogo, existencias y sesiones del módulo de conteo externo"),
     ];
 }

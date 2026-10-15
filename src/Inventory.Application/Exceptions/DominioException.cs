@@ -319,3 +319,104 @@ public class ValidacionException : DominioException
 
     public ValidacionException(string mensaje) : base(mensaje) { }
 }
+
+// ---- Conteo Externo (módulo independiente, ver CLAUDE.md) ----
+
+public class ConteoExternoUnidadNoEncontradaException : DominioException
+{
+    public override int Status => 404;
+
+    public ConteoExternoUnidadNoEncontradaException(int id)
+        : base($"No existe una unidad (conteo externo) activa con id {id}.") { }
+
+    public ConteoExternoUnidadNoEncontradaException(string codigo)
+        : base($"La unidad (conteo externo) '{codigo}' no existe o está inactiva. Dala de alta antes de usarla.") { }
+}
+
+public class CodigoConteoExternoUnidadDuplicadoException : DominioException
+{
+    public override int Status => 409;
+
+    public CodigoConteoExternoUnidadDuplicadoException(string codigo)
+        : base($"Ya existe una unidad (conteo externo) activa con el código '{codigo}'.") { }
+}
+
+public class ConteoExternoProductoNoEncontradoException : DominioException
+{
+    public override int Status => 404;
+
+    public ConteoExternoProductoNoEncontradoException(int id)
+        : base($"No existe un producto (conteo externo) activo con id {id}.") { }
+}
+
+public class CodigoConteoExternoProductoDuplicadoException : DominioException
+{
+    public override int Status => 409;
+
+    public CodigoConteoExternoProductoDuplicadoException(string codigo)
+        : base($"Ya existe un producto (conteo externo) activo con el código '{codigo}' (comparado sin ceros a la izquierda).") { }
+}
+
+public class ConteoExternoExistenciaNoEncontradaException : DominioException
+{
+    public override int Status => 404;
+
+    public ConteoExternoExistenciaNoEncontradaException(int id)
+        : base($"No existe una existencia (conteo externo) con id {id}.") { }
+}
+
+public class UnidadConteoExternoProductoYaFijadaException : DominioException
+{
+    public override int Status => 409;
+
+    public UnidadConteoExternoProductoYaFijadaException(string codigoProducto, string unidadFijada)
+        : base($"El producto (conteo externo) '{codigoProducto}' ya tiene fijada la unidad '{unidadFijada}' (se fija con el primer lote de existencia y no se puede cambiar).") { }
+}
+
+public class ConteoExternoSesionNoEncontradaException : DominioException
+{
+    public override int Status => 404;
+
+    public ConteoExternoSesionNoEncontradaException(int id)
+        : base($"No existe una sesión de conteo (conteo externo) con id {id}.") { }
+}
+
+public class ConteoExternoLineaNoEncontradaException : DominioException
+{
+    public override int Status => 404;
+
+    public ConteoExternoLineaNoEncontradaException(int id)
+        : base($"No existe una línea de conteo (conteo externo) con id {id}.") { }
+}
+
+public class ConteoExternoSesionCerradaException : DominioException
+{
+    public override int Status => 409;
+
+    public ConteoExternoSesionCerradaException()
+        : base("Esta sesión de conteo (conteo externo) ya está cerrada y no se puede modificar.") { }
+}
+
+public class ConteoExternoSesionSinExistenciasException : DominioException
+{
+    public override int Status => 400;
+
+    public ConteoExternoSesionSinExistenciasException()
+        : base("No hay existencias (conteo externo) que coincidan con esos filtros — cargá existencias antes de crear la sesión.") { }
+}
+
+public class ConteoExternoAlmacenNoEncontradoException : DominioException
+{
+    public override int Status => 404;
+
+    public ConteoExternoAlmacenNoEncontradoException(int id)
+        : base($"No existe un almacén (conteo externo) activo con id {id}.") { }
+}
+
+public class CodigoConteoExternoAlmacenDuplicadoException : DominioException
+{
+    public override int Status => 409;
+
+    public CodigoConteoExternoAlmacenDuplicadoException(string codigo)
+        : base($"Ya existe un almacén (conteo externo) activo con el código '{codigo}'.") { }
+}

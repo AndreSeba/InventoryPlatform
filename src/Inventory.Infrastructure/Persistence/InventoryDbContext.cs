@@ -28,6 +28,10 @@ public class InventoryDbContext : DbContext
     public DbSet<RevisionAcceso> RevisionesAcceso => Set<RevisionAcceso>();
     public DbSet<RevisionAccesoLinea> RevisionAccesoLineas => Set<RevisionAccesoLinea>();
 
+    // Módulo de conteo independiente — catálogo propio (ver CLAUDE.md).
+    public DbSet<ConteoExternoUnidad> ConteoExternoUnidades => Set<ConteoExternoUnidad>();
+    public DbSet<ConteoExternoProducto> ConteoExternoProductos => Set<ConteoExternoProducto>();
+
     public DbSet<Usuario> Usuarios => Set<Usuario>();
     public DbSet<Rol> Roles => Set<Rol>();
     public DbSet<Permiso> Permisos => Set<Permiso>();
