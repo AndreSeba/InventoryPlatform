@@ -817,6 +817,43 @@ solo habría significado volver a leer lo mismo dos veces. Entidades
   que escribe sobre las entidades de las Fases 1/2.
 - **Sin verificar por compilación todavía.**
 
+**Fase 6 (nombres de almacén)** — última fase del plan. La entidad
+`ConteoExternoAlmacen` y su configuración ya se habían adelantado en la Fase 2 (porque
+`ConteoExternoExistenciaService` necesitaba resolver el nombre para mostrar desde
+entonces); esta fase agrega el servicio/controller/frontend que faltaban para
+administrarla.
+
+- **Solo nombres — nunca reemplaza el código**: `ConteoExternoExistencia.AlmacenCodigo`
+  y `ConteoExternoLinea.AlmacenCodigo` siguen siendo texto libre, la identidad real
+  (para joins, reimportaciones, dedupe). `ConteoExternoAlmacen` es un catálogo aparte
+  que solo le pone un nombre legible a un código que ya existe en otro lado — por eso
+  no tiene FK hacia `ConteoExternoExistencia` ni viceversa, se resuelve por código en
+  tiempo de consulta (`ConteoExternoExistenciaService`/`ConteoExternoSesionService` ya
+  hacían esto desde la Fase 2, sin esperar a que este catálogo tuviera administración).
+- **`Codigo` es inmutable, mismo motivo que `ConteoExternoUnidad`**: una vez que
+  existencias/líneas ya usan ese código, renombrarlo dejaría el catálogo apuntando a
+  algo que no coincide con lo cargado. `ActualizarAsync` solo recibe `Nombre`/`Activo`.
+  No hay vínculo que lo fuerce a nivel de base (es texto libre en el otro lado), así
+  que un error de tipeo en el código del almacén no lo detecta el sistema — se nota
+  cuando el nombre no aparece.
+- **Mismo patrón que Categoría/Área/Unidad**: "eliminar" es `Activo = false` (nunca un
+  DELETE real), único por `(PaisId, Codigo)` entre activos
+  (`CodigoConteoExternoAlmacenDuplicadoException`, 409).
+- **Sin permiso nuevo** — sigue usando el único par `conteoexterno.ver`/
+  `conteoexterno.gestionar` del módulo completo.
+- **Frontend**: `/conteo-externo/almacenes`, mismo patrón visual que
+  `/conteo-externo/unidades` (tabla + diálogo, código deshabilitado al editar).
+- **Sin migración nueva** más allá de la tabla `ConteoExternoAlmacen` que ya había
+  quedado pendiente de la Fase 2 (ver esa sección: todavía no se generó ninguna
+  migración de este módulo).
+- **Sin verificar por compilación todavía.**
+- **Con esta fase, el plan de 6 fases del módulo queda completo** — lo único pendiente
+  es generar y aplicar las migraciones (`ConteoExternoFase1`, `ConteoExternoFase2`,
+  `ConteoExternoFase3y4`, cada una con el comando de `dotnet ef migrations add` indicado
+  en su propia sección más arriba — Fase 5 y Fase 6 no agregan tablas nuevas, viajan
+  dentro de esas) y compilar/probar de punta a punta, que no se pudo hacer en el
+  entorno donde se escribió (sin SDK de .NET instalado).
+
 ### Más tipos de Ubicación además de Rack/Mueble (consultado 2026-09-14, no implementado)
 
 > El usuario preguntó si valía la pena poder agregar más tipos de ubicación a futuro.
