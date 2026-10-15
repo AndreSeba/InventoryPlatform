@@ -24,6 +24,21 @@ public class ConteoExternoProductosController : ControllerBase
         [FromQuery] string? texto, [FromQuery] string? familia, [FromQuery] bool incluirInactivos, CancellationToken ct)
         => Ok(await _productoService.ListarAsync(User.ObtenerPaisId(), texto, familia, incluirInactivos, ct));
 
+    // Autocompletado por código o nombre (hasta `max` resultados, 6 por defecto).
+    [HttpGet("buscar")]
+    [Authorize(Policy = Permisos.ConteoExternoVer)]
+    public async Task<ActionResult<IReadOnlyList<ConteoExternoProductoBusquedaDto>>> Buscar(
+        [FromQuery] string? texto, [FromQuery] int max = 6, CancellationToken ct = default)
+        => Ok(await _productoService.BuscarAsync(User.ObtenerPaisId(), texto, max, ct));
+
+    // Unidad, costo, almacén habitual y lotes conocidos del producto, para completar el formulario del sobrante.
+    [HttpGet("{id:int}/sugerencias")]
+    [Authorize(Policy = Permisos.ConteoExternoVer)]
+    [ProducesResponseType(typeof(ConteoExternoSugerenciasDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ConteoExternoSugerenciasDto>> ObtenerSugerencias(int id, CancellationToken ct)
+        => Ok(await _productoService.ObtenerSugerenciasAsync(id, User.ObtenerPaisId(), ct));
+
     [HttpGet("familias")]
     [Authorize(Policy = Permisos.ConteoExternoVer)]
     public async Task<ActionResult<IReadOnlyList<string>>> ListarFamilias(CancellationToken ct)

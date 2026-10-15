@@ -50,3 +50,17 @@ public record ConteoExternoSesionKpiDto(
     decimal? ExactitudValor, decimal? ExactitudValorAbsoluta,
     int SinContar
 );
+
+// Producto SOBRANTE: está físicamente pero no en el sistema. En un solo paso se da de alta el
+// producto en el catálogo (solo si el código no existe), el lote en Existencias con existencia 0
+// y la línea en la sesión (ver ConteoExternoSesionService.AgregarSobranteAsync).
+// Nombre/Familia solo se usan si el código es nuevo; UnidadCodigo/Costo solo si el producto todavía
+// no los tiene fijados (la unidad se fija con el primer lote; el costo es ÚNICO por producto).
+// Ubicacion/CantidadContada son opcionales: si viene cantidad, se guarda como conteo 1.
+public record AgregarSobranteConteoExternoDto(
+    string Codigo, string? Nombre, string? Familia, string AlmacenCodigo, string Lote,
+    string? UnidadCodigo, decimal? Costo, string? Ubicacion, decimal? CantidadContada);
+
+// Cantidad FINAL de una línea (transcripción ágil). Null = no tocar (vacío no borra).
+// Ver ConteoExternoSesionService.RegistrarCantidadFinalAsync para la regla de dónde se guarda.
+public record ConteoExternoCantidadFinalDto(decimal? Cantidad);

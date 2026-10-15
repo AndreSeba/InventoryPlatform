@@ -15,3 +15,13 @@ public record CrearConteoExternoProductoDto(string Codigo, string Nombre, string
 // Familia/Nombre editables; el código NO (cambiarlo movería existencias/costos, caso que
 // esta fase no necesita). CostoReferencia sí se puede ajustar a mano en cualquier momento.
 public record ActualizarConteoExternoProductoDto(string Nombre, string Familia, decimal? CostoReferencia, bool Activo);
+
+// Resultado liviano del buscador por código o nombre (autocompletado al agregar un sobrante).
+public record ConteoExternoProductoBusquedaDto(int Id, string Codigo, string Nombre, string Familia);
+
+// Todo lo que se puede traer solo al elegir un producto: unidad (única por producto), costo de
+// referencia (ÚNICO por producto), el almacén donde más lotes tiene y sus lotes conocidos
+// (sugerencias; el lote del sobrante NO se rellena, es lo único que cambia cada vez).
+public record ConteoExternoSugerenciasDto(
+    int ProductoId, string Codigo, string Nombre, string Familia, string? UnidadCodigo, decimal? CostoReferencia,
+    string? AlmacenHabitual, List<string> Lotes);

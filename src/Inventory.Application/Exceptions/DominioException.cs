@@ -420,3 +420,11 @@ public class CodigoConteoExternoAlmacenDuplicadoException : DominioException
     public CodigoConteoExternoAlmacenDuplicadoException(string codigo)
         : base($"Ya existe un almacén (conteo externo) activo con el código '{codigo}'.") { }
 }
+
+public class ConteoExternoSobranteYaExisteException : DominioException
+{
+    public override int Status => 409;
+
+    public ConteoExternoSobranteYaExisteException(string codigo, string almacen, string lote)
+        : base($"El lote {lote} de {codigo} en {almacen} ya existe en el sistema o en esta sesión: no es un sobrante. Contalo desde la tabla.") { }
+}

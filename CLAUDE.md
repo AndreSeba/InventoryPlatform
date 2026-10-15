@@ -854,6 +854,43 @@ administrarla.
   dentro de esas) y compilar/probar de punta a punta, que no se pudo hacer en el
   entorno donde se escribió (sin SDK de .NET instalado).
 
+**Tanda 2 (2026-10-15): sobrantes, transcripción ágil y cierre que quita lotes** — rama
+`claude/conteo-externo-sobrantes-y-transcripcion` (backend y Web). Reglas tomadas de la app de
+escritorio (ver `FLUJO_CONTEO_PARA_INVENTORYPLATFORM.md` en el repo `AndreSeba/conteoF`).
+
+- **Producto sobrante** — `POST /api/conteo-externo/sesiones/{id}/sobrantes`
+  (`AgregarSobranteConteoExternoDto`): está físicamente pero el sistema no lo tiene. En **una transacción**
+  (`EnCursoAsync`) da de alta el producto en el catálogo **solo si el código no existe** (comparación por
+  `CodigoNormalizado`), el lote en Existencias con **existencia 0** y la línea de la sesión con existencia 0 y el
+  costo del producto; lo contado sale como diferencia **positiva**. `CantidadContada` opcional → conteo 1 en la
+  `Ubicacion` dada (o `S/U`). Costo **único por producto**: si el producto no lo tiene, el DTO debe traerlo
+  (`ValidacionException` si falta) y se fija ahí; la unidad se fija igual que con el primer lote (si ya estaba fijada y
+  no coincide, 409). Un lote que ya está en el sistema o en la sesión no es un sobrante: `ConteoExternoSobranteYaExisteException`
+  (409). Un rechazo no deja nada a medias (el producto nuevo entra al contexto junto con su existencia, recién
+  tras validar todo). Auditoría: `ConteoExternoSesion` / «Agregar sobrante».
+- **Buscador y sugerencias** — `GET /productos/buscar?texto=&max=` (código exacto primero, hasta 20) y
+  `GET /productos/{id}/sugerencias` (unidad, costo, almacén con más lotes, lotes conocidos). El lote del sobrante
+  **no** se rellena (es lo único que cambia cada vez).
+- **Cantidad final (transcripción ágil)** — `PUT /sesiones/lineas/{id}/cantidad-final`
+  (`ConteoExternoCantidadFinalDto(decimal? Cantidad)`). Línea sin datos → conteo 1, ubicación `S/U`; con exactamente
+  1 conteo de 1 ubicación → se reemplaza **esa** ubicación (conserva número y nombre); con varias ubicaciones o
+  reconteos → 400 (se edita con `RegistrarConteoAsync` desde el detalle, nunca se pisa información). `null` = no
+  tocar (vacío no borra); `0` es un conteo real. El frontend escribe en la celda «Contado», **Enter pasa a la
+  siguiente** (↑/↓/Esc), salta las líneas con detalle y el doble clic abre el diálogo de detalle de siempre.
+- **`EnCursoAsync` ahora también en `ConteoExternoSesionService`** (mismo patrón que `ConteoService`): registrar
+  conteo, cantidad final, observación y sobrante toman el candado de la sesión con un `UPDATE` no-op que solo
+  matchea si sigue `EnCurso`; antes solo se chequeaba el estado y se podía guardar algo después del cierre.
+- **Cerrar quita los lotes contados de Existencias** (`Activo = false`, nunca se borra la fila) en la **misma
+  transacción** que el cierre atómico; no toca las existencias que no estaban en la sesión. La sesión conserva su
+  foto, así que historial y KPIs no cambian. La auditoría de «Cerrar» guarda `LotesQuitadosDeExistencias`.
+- Tests: `tests/Inventory.UnitTests/ConteoExternoSobranteTests.cs` (sobrantes, cantidad final, cierre, buscador).
+- **Sin compilar ni correr todavía** (se escribió sin SDK de .NET): antes de fusionar, `dotnet build` + `dotnet test`
+  en ambos repos (el Web referencia `Inventory.Application` por ruta relativa: usar la **misma rama** en los dos).
+- **Pendiente** (brechas del documento de traspaso): importar «Valorado» primero, filtros/mapeo bloqueado/validación
+  por contenido, suma de lotes repetidos, lista cerrada de observaciones, hoja de conteo imprimible y export
+  `tblKPI/tblLotes/tblConteos`. Y la **decisión de costo** (único por producto vs por almacén) sigue sin confirmar
+  con Pablo Burgos.
+
 ### Más tipos de Ubicación además de Rack/Mueble (consultado 2026-09-14, no implementado)
 
 > El usuario preguntó si valía la pena poder agregar más tipos de ubicación a futuro.

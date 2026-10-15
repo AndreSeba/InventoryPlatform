@@ -130,19 +130,65 @@ public class ConteoExternoSesionService : IConteoExternoSesionService
         if (numeroConteo is < 1 or > ConteoExternoRegistro.MaxConteos)
             throw new ValidacionException($"El número de conteo debe estar entre 1 y {ConteoExternoRegistro.MaxConteos}.");
 
+        var sesionId = await SesionDeLineaAsync(lineaId, paisId, ct);
+        await EnCursoAsync(sesionId, paisId, () => AplicarConteoAsync(lineaId, numeroConteo, dto.Cantidades, paisId, usuario, ct), ct);
+    }
+
+    // Transcripción ágil: el supervisor escribe SOLO la cantidad final de la línea. Dónde se guarda:
+    //  · línea sin datos            → conteo 1, ubicación "S/U".
+    //  · exactamente 1 conteo con 1 ubicación → se reemplaza ESA ubicación (conserva su número y nombre).
+    //  · varias ubicaciones o varios conteos  → se rechaza: ese detalle se edita con RegistrarConteoAsync
+    //    (el frontend abre el diálogo de detalle), así nunca se pisa información.
+    // Cantidad null = no tocar nada (dejar vacío no borra un conteo existente).
+    public async Task RegistrarCantidadFinalAsync(int lineaId, ConteoExternoCantidadFinalDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
+    {
+        var sesionId = await SesionDeLineaAsync(lineaId, paisId, ct);
+        await EnCursoAsync(sesionId, paisId, async () =>
+        {
+            if (dto.Cantidad is null) return true;
+
+            var registros = await _db.ConteoExternoRegistros.AsNoTracking()
+                .Where(r => r.ConteoExternoLineaId == lineaId)
+                .Select(r => new { r.NumeroConteo, r.Ubicacion })
+                .ToListAsync(ct);
+
+            int numeroConteo;
+            string ubicacion;
+            var numeros = registros.Select(r => r.NumeroConteo).Distinct().ToList();
+            if (registros.Count == 0)
+            {
+                numeroConteo = 1;
+                ubicacion = ConteoExternoRegistro.SinUbicacion;
+            }
+            else if (numeros.Count == 1 && registros.Count == 1)
+            {
+                numeroConteo = registros[0].NumeroConteo;
+                ubicacion = registros[0].Ubicacion;
+            }
+            else
+            {
+                throw new ValidacionException("Esta línea tiene varias ubicaciones o reconteos: editala desde el detalle.");
+            }
+
+            return await AplicarConteoAsync(lineaId, numeroConteo, new Dictionary<string, decimal?> { [ubicacion] = dto.Cantidad }, paisId, usuario, ct);
+        }, ct);
+    }
+
+    // Núcleo de "registrar un conteo": REEMPLAZA todas las filas de ESE número de conteo de la línea.
+    // Debe llamarse dentro de EnCursoAsync (ya con la sesión bloqueada y en curso).
+    private async Task<bool> AplicarConteoAsync(int lineaId, int numeroConteo, IReadOnlyDictionary<string, decimal?> cantidades,
+        int paisId, UsuarioActuante usuario, CancellationToken ct)
+    {
         var linea = await _db.ConteoExternoLineas.Include(l => l.ConteoExternoSesion).Include(l => l.Registros)
             .FirstOrDefaultAsync(l => l.Id == lineaId && l.ConteoExternoSesion!.PaisId == paisId, ct)
             ?? throw new ConteoExternoLineaNoEncontradaException(lineaId);
-
-        if (linea.ConteoExternoSesion!.Estado != EstadoConteoExternoSesion.EnCurso)
-            throw new ConteoExternoSesionCerradaException();
 
         var unidad = await _db.ConteoExternoUnidades.AsNoTracking()
             .FirstOrDefaultAsync(u => u.PaisId == paisId && u.Codigo == linea.UnidadCodigo, ct)
             ?? throw new ConteoExternoUnidadNoEncontradaException(linea.UnidadCodigo);
 
         var validadas = new Dictionary<string, decimal>();
-        foreach (var (ubicacionCruda, cantidadCruda) in dto.Cantidades)
+        foreach (var (ubicacionCruda, cantidadCruda) in cantidades)
         {
             var ubicacion = NormalizarUbicacion(ubicacionCruda);
             var cantidad = CantidadConteoExterno.ValidarOpcional(cantidadCruda, unidad.DecimalesPermitidos, "La cantidad");
@@ -175,23 +221,184 @@ public class ConteoExternoSesionService : IConteoExternoSesionService
         await _auditoria.RegistrarAsync(nameof(ConteoExternoLinea), linea.Id.ToString(), "Registrar conteo", null,
             _auditoria.Capturar(new { linea.ProductoCodigo, linea.AlmacenCodigo, linea.Lote, NumeroConteo = numeroConteo, Ubicaciones = validadas }),
             paisId, usuario, null, ct);
+        return true;
+    }
+
+    private async Task<int> SesionDeLineaAsync(int lineaId, int paisId, CancellationToken ct)
+        => await _db.ConteoExternoLineas.AsNoTracking()
+               .Where(l => l.Id == lineaId && l.ConteoExternoSesion!.PaisId == paisId)
+               .Select(l => (int?)l.ConteoExternoSesionId)
+               .FirstOrDefaultAsync(ct)
+           ?? throw new ConteoExternoLineaNoEncontradaException(lineaId);
+
+    // Ejecuta una modificación sobre una sesión EN CURSO. Primero toma el candado de la fila con un UPDATE
+    // que solo matchea si sigue en curso (mismo patrón que ConteoService.EnCursoAsync): si otro la cerró
+    // antes da 0 filas y se rechaza; si el cierre llega después, espera a que esta transacción termine.
+    // Sin esto se podría guardar una cantidad o un sobrante DESPUÉS del cierre.
+    private async Task<T> EnCursoAsync<T>(int sesionId, int paisId, Func<Task<T>> accion, CancellationToken ct)
+    {
+        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+
+        var bloqueadas = await _db.ConteoExternoSesiones
+            .Where(s => s.Id == sesionId && s.PaisId == paisId && s.Estado == EstadoConteoExternoSesion.EnCurso)
+            .ExecuteUpdateAsync(u => u.SetProperty(s => s.Estado, EstadoConteoExternoSesion.EnCurso), ct);
+        if (bloqueadas == 0)
+        {
+            var existe = await _db.ConteoExternoSesiones.AsNoTracking().AnyAsync(s => s.Id == sesionId && s.PaisId == paisId, ct);
+            if (!existe) throw new ConteoExternoSesionNoEncontradaException(sesionId);
+            throw new ConteoExternoSesionCerradaException();
+        }
+
+        var resultado = await accion();
+        await tx.CommitAsync(ct);
+        return resultado;
+    }
+
+    // Producto SOBRANTE: está físicamente pero el sistema no lo tiene. Todo o nada, en una transacción:
+    // (1) alta del producto en el catálogo SOLO si el código no existe, (2) lote en Existencias con existencia 0,
+    // (3) línea en la sesión con existencia del sistema 0 y el costo del producto. Lo contado sale como
+    // diferencia positiva. Costo ÚNICO por producto: si el producto no lo tiene, se exige y se fija acá.
+    public async Task<ConteoExternoLineaDto> AgregarSobranteAsync(int sesionId, AgregarSobranteConteoExternoDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
+    {
+        var codigo = Validacion.Texto(dto.Codigo, 30, "El código del producto");
+        if (codigo.Any(char.IsWhiteSpace))
+            throw new ValidacionException("El código del producto no puede contener espacios.");
+        var almacenCodigo = Validacion.Texto(dto.AlmacenCodigo, 30, "El almacén");
+        var lote = Validacion.Texto(dto.Lote, 50, "El lote");
+        var normalizado = CodigoConteoExterno.Normalizar(codigo);
+
+        var lineaId = await EnCursoAsync(sesionId, paisId, async () =>
+        {
+            var producto = await _db.ConteoExternoProductos
+                .FirstOrDefaultAsync(p => p.PaisId == paisId && p.CodigoNormalizado == normalizado && p.Activo, ct);
+            var productoNuevo = producto is null;
+            if (producto is null)
+            {
+                producto = new ConteoExternoProducto
+                {
+                    Codigo = codigo,
+                    CodigoNormalizado = normalizado,
+                    Nombre = Validacion.Texto(dto.Nombre, 200, "El nombre del producto"),
+                    Familia = (Validacion.TextoOpcional(dto.Familia, 100, "La familia") ?? string.Empty).ToUpperInvariant(),
+                    Origen = OrigenConteoExternoProducto.Manual,
+                    PaisId = paisId,
+                    Activo = true,
+                };
+                // No se agrega al contexto todavía: entra junto con su existencia (por la navegación) recién
+                // cuando todas las validaciones pasaron, así un rechazo no deja nada pendiente de guardar.
+            }
+
+            // Unidad: única por producto. Se fija con el primer lote; si ya estaba fijada tiene que coincidir.
+            var unidadPedida = string.IsNullOrWhiteSpace(dto.UnidadCodigo) ? null : dto.UnidadCodigo.Trim().ToUpperInvariant();
+            if (producto.UnidadCodigo is not null && unidadPedida is not null && unidadPedida != producto.UnidadCodigo)
+                throw new UnidadConteoExternoProductoYaFijadaException(producto.Codigo, producto.UnidadCodigo);
+            var unidadCodigo = producto.UnidadCodigo ?? unidadPedida
+                ?? throw new ValidacionException("Elegí la unidad del producto.");
+            var unidad = await _db.ConteoExternoUnidades.AsNoTracking()
+                .FirstOrDefaultAsync(u => u.PaisId == paisId && u.Codigo == unidadCodigo && u.Activo, ct)
+                ?? throw new ConteoExternoUnidadNoEncontradaException(unidadCodigo);
+            producto.UnidadCodigo = unidadCodigo;
+
+            // Costo único por producto.
+            if (producto.CostoReferencia is null)
+            {
+                if (dto.Costo is null)
+                    throw new ValidacionException($"{producto.Codigo} no tiene costo: ingresá el costo unitario.");
+                if (dto.Costo < 0)
+                    throw new ValidacionException("El costo no puede ser negativo.");
+                producto.CostoReferencia = dto.Costo;
+            }
+
+            var contada = CantidadConteoExterno.ValidarOpcional(dto.CantidadContada, unidad.DecimalesPermitidos, "La cantidad contada");
+
+            // Si el producto ya existía: el lote no puede estar ya en el sistema ni en esta sesión (no sería un sobrante).
+            if (!productoNuevo)
+            {
+                var yaEnSistema = await _db.ConteoExternoExistencias.AnyAsync(e =>
+                    e.PaisId == paisId && e.Activo && e.ConteoExternoProductoId == producto.Id && e.AlmacenCodigo == almacenCodigo && e.Lote == lote, ct);
+                var yaEnSesion = await _db.ConteoExternoLineas.AnyAsync(l =>
+                    l.ConteoExternoSesionId == sesionId && l.ConteoExternoProductoId == producto.Id && l.AlmacenCodigo == almacenCodigo && l.Lote == lote, ct);
+                if (yaEnSistema || yaEnSesion)
+                    throw new ConteoExternoSobranteYaExisteException(producto.Codigo, almacenCodigo, lote);
+            }
+
+            var existencia = new ConteoExternoExistencia
+            {
+                ConteoExternoProducto = producto,
+                AlmacenCodigo = almacenCodigo,
+                Lote = lote,
+                CantidadSistema = 0m,
+                PaisId = paisId,
+                Activo = true,
+            };
+            _db.ConteoExternoExistencias.Add(existencia);
+
+            // La línea apunta al producto y a la existencia por Id: se guardan primero para tenerlos.
+            await _db.SaveChangesAsync(ct);
+
+            var linea = new ConteoExternoLinea
+            {
+                ConteoExternoSesionId = sesionId,
+                ConteoExternoExistenciaId = existencia.Id,
+                ConteoExternoProductoId = producto.Id,
+                ProductoCodigo = producto.Codigo,
+                ProductoNombre = producto.Nombre,
+                Familia = producto.Familia,
+                AlmacenCodigo = almacenCodigo,
+                Lote = lote,
+                UnidadCodigo = unidadCodigo,
+                ExistenciaSistema = 0m,
+                CostoUnitario = producto.CostoReferencia ?? 0m,
+            };
+            _db.ConteoExternoLineas.Add(linea);
+            await _db.SaveChangesAsync(ct);
+
+            if (contada is not null)
+            {
+                var ubicacion = NormalizarUbicacion(dto.Ubicacion);
+                if (ubicacion.Length > ConteoExternoRegistro.LargoMaxUbicacion)
+                    throw new ValidacionException($"La ubicación pasa de {ConteoExternoRegistro.LargoMaxUbicacion} caracteres.");
+                _db.ConteoExternoRegistros.Add(new ConteoExternoRegistro
+                {
+                    ConteoExternoLineaId = linea.Id,
+                    NumeroConteo = 1,
+                    Ubicacion = ubicacion,
+                    Cantidad = contada.Value,
+                    ContadoPorId = usuario.Id,
+                    ContadoPorNombre = usuario.Nombre,
+                    FechaConteo = DateTime.UtcNow,
+                });
+                await _db.SaveChangesAsync(ct);
+            }
+
+            await _auditoria.RegistrarAsync(nameof(ConteoExternoSesion), sesionId.ToString(), "Agregar sobrante", null,
+                _auditoria.Capturar(new { ProductoCodigo = producto.Codigo, ProductoNuevo = productoNuevo, AlmacenCodigo = almacenCodigo, Lote = lote, CantidadContada = contada }),
+                paisId, usuario, null, ct);
+            return linea.Id;
+        }, ct);
+
+        var creada = await _db.ConteoExternoLineas.AsNoTracking().Include(l => l.Registros)
+            .FirstAsync(l => l.Id == lineaId, ct);
+        return ArmarLineaDto(creada, await ResolverNombresAlmacenAsync(paisId, ct));
     }
 
     public async Task ActualizarObservacionAsync(int lineaId, ActualizarObservacionConteoExternoDto dto, int paisId, UsuarioActuante usuario, CancellationToken ct)
     {
-        var linea = await _db.ConteoExternoLineas.Include(l => l.ConteoExternoSesion)
-            .FirstOrDefaultAsync(l => l.Id == lineaId && l.ConteoExternoSesion!.PaisId == paisId, ct)
-            ?? throw new ConteoExternoLineaNoEncontradaException(lineaId);
+        var sesionId = await SesionDeLineaAsync(lineaId, paisId, ct);
+        await EnCursoAsync(sesionId, paisId, async () =>
+        {
+            var linea = await _db.ConteoExternoLineas
+                .FirstOrDefaultAsync(l => l.Id == lineaId, ct)
+                ?? throw new ConteoExternoLineaNoEncontradaException(lineaId);
 
-        if (linea.ConteoExternoSesion!.Estado != EstadoConteoExternoSesion.EnCurso)
-            throw new ConteoExternoSesionCerradaException();
+            var anterior = linea.Observacion;
+            linea.Observacion = Validacion.TextoOpcional(dto.Observacion, 200, "La observación");
+            await _db.SaveChangesAsync(ct);
 
-        var anterior = linea.Observacion;
-        linea.Observacion = Validacion.TextoOpcional(dto.Observacion, 200, "La observación");
-        await _db.SaveChangesAsync(ct);
-
-        await _auditoria.RegistrarAsync(nameof(ConteoExternoLinea), linea.Id.ToString(), "Actualizar observación",
-            _auditoria.Capturar(new { Observacion = anterior }), _auditoria.Capturar(new { linea.Observacion }), paisId, usuario, null, ct);
+            await _auditoria.RegistrarAsync(nameof(ConteoExternoLinea), linea.Id.ToString(), "Actualizar observación",
+                _auditoria.Capturar(new { Observacion = anterior }), _auditoria.Capturar(new { linea.Observacion }), paisId, usuario, null, ct);
+            return true;
+        }, ct);
     }
 
     public async Task<ConteoExternoSesionResumenDto> CerrarAsync(int id, int paisId, UsuarioActuante usuario, CancellationToken ct)
@@ -212,6 +419,10 @@ public class ConteoExternoSesionService : IConteoExternoSesionService
                 throw new ValidacionException($"No se puede cerrar: faltan {sinContar} línea(s) por contar.");
 
             var ahora = DateTime.UtcNow;
+            // Cerrar y quitar de Existencias los lotes contados van juntos: la sesión conserva su propia
+            // foto (historial y KPIs no cambian) y el próximo conteo parte de una importación nueva.
+            // "Quitar" = Activo=false (nunca se borra la fila, como el resto del sistema).
+            await using var tx = await _db.Database.BeginTransactionAsync(ct);
             var afectadas = await _db.ConteoExternoSesiones
                 .Where(s => s.Id == id && s.Estado == EstadoConteoExternoSesion.EnCurso)
                 .ExecuteUpdateAsync(u => u
@@ -220,8 +431,17 @@ public class ConteoExternoSesionService : IConteoExternoSesionService
                     .SetProperty(s => s.CerradoPorId, usuario.Id)
                     .SetProperty(s => s.CerradoPorNombre, usuario.Nombre), ct);
 
+            var lotesQuitados = 0;
             if (afectadas > 0)
-                await _auditoria.RegistrarAsync(nameof(ConteoExternoSesion), id.ToString(), "Cerrar", null, _auditoria.Capturar(new { sesion.Nombre }), paisId, usuario, null, ct);
+                lotesQuitados = await _db.ConteoExternoExistencias
+                    .Where(e => e.PaisId == paisId && e.Activo &&
+                                _db.ConteoExternoLineas.Any(l => l.ConteoExternoSesionId == id && l.ConteoExternoExistenciaId == e.Id))
+                    .ExecuteUpdateAsync(u => u.SetProperty(e => e.Activo, false), ct);
+            await tx.CommitAsync(ct);
+
+            if (afectadas > 0)
+                await _auditoria.RegistrarAsync(nameof(ConteoExternoSesion), id.ToString(), "Cerrar", null,
+                    _auditoria.Capturar(new { sesion.Nombre, LotesQuitadosDeExistencias = lotesQuitados }), paisId, usuario, null, ct);
         }
 
         var actual = await _db.ConteoExternoSesiones.AsNoTracking().FirstAsync(s => s.Id == id, ct);

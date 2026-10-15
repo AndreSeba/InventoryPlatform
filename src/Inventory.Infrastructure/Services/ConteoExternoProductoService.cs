@@ -47,6 +47,46 @@ public class ConteoExternoProductoService : IConteoExternoProductoService
             .ToListAsync(ct);
     }
 
+    // Buscador por código o nombre para el autocompletado (hasta `max` coincidencias). Si el texto es un
+    // código exacto (con o sin ceros a la izquierda) ese producto va primero.
+    public async Task<IReadOnlyList<ConteoExternoProductoBusquedaDto>> BuscarAsync(int paisId, string? texto, int max, CancellationToken ct)
+    {
+        var buscado = (texto ?? string.Empty).Trim().ToUpperInvariant();
+        if (buscado.Length == 0) return [];
+        var normalizado = CodigoConteoExterno.Normalizar(buscado);
+        var tope = Math.Clamp(max, 1, 20);
+
+        return await _db.ConteoExternoProductos.AsNoTracking()
+            .Where(p => p.PaisId == paisId && p.Activo &&
+                        (p.CodigoNormalizado == normalizado || p.Codigo.ToUpper().Contains(buscado) || p.Nombre.ToUpper().Contains(buscado)))
+            .OrderByDescending(p => p.CodigoNormalizado == normalizado)
+            .ThenBy(p => p.Codigo)
+            .Take(tope)
+            .Select(p => new ConteoExternoProductoBusquedaDto(p.Id, p.Codigo, p.Nombre, p.Familia))
+            .ToListAsync(ct);
+    }
+
+    public async Task<ConteoExternoSugerenciasDto> ObtenerSugerenciasAsync(int id, int paisId, CancellationToken ct)
+    {
+        var producto = await _db.ConteoExternoProductos.AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == id && p.PaisId == paisId && p.Activo, ct)
+            ?? throw new ConteoExternoProductoNoEncontradoException(id);
+
+        var existencias = await _db.ConteoExternoExistencias.AsNoTracking()
+            .Where(e => e.PaisId == paisId && e.ConteoExternoProductoId == id)
+            .Select(e => new { e.AlmacenCodigo, e.Lote })
+            .ToListAsync(ct);
+
+        var habitual = existencias.GroupBy(e => e.AlmacenCodigo)
+            .OrderByDescending(g => g.Count()).ThenBy(g => g.Key)
+            .Select(g => g.Key).FirstOrDefault();
+        var lotes = existencias.Select(e => e.Lote).Where(l => !string.IsNullOrWhiteSpace(l))
+            .Select(l => l!).Distinct().OrderBy(l => l).ToList();
+
+        return new ConteoExternoSugerenciasDto(producto.Id, producto.Codigo, producto.Nombre, producto.Familia,
+            producto.UnidadCodigo, producto.CostoReferencia, habitual, lotes);
+    }
+
     public async Task<IReadOnlyList<string>> ListarFamiliasAsync(int paisId, CancellationToken ct)
     {
         return await _db.ConteoExternoProductos.AsNoTracking()

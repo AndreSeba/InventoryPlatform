@@ -50,6 +50,29 @@ public class ConteoExternoSesionesController : ControllerBase
         return NoContent();
     }
 
+    // Transcripción ágil: la cantidad FINAL de la línea (Enter pasa a la siguiente en el frontend).
+    [HttpPut("lineas/{lineaId:int}/cantidad-final")]
+    [Authorize(Policy = Permisos.ConteoExternoGestionar)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> RegistrarCantidadFinal(int lineaId, [FromBody] ConteoExternoCantidadFinalDto dto, CancellationToken ct)
+    {
+        await _sesionService.RegistrarCantidadFinalAsync(lineaId, dto, User.ObtenerPaisId(), User.ObtenerUsuarioActuante(), ct);
+        return NoContent();
+    }
+
+    // Producto sobrante: catálogo (si es nuevo) + existencia 0 + línea en la sesión, todo o nada.
+    [HttpPost("{id:int}/sobrantes")]
+    [Authorize(Policy = Permisos.ConteoExternoGestionar)]
+    [ProducesResponseType(typeof(ConteoExternoLineaDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<ConteoExternoLineaDto>> AgregarSobrante(int id, [FromBody] AgregarSobranteConteoExternoDto dto, CancellationToken ct)
+        => Ok(await _sesionService.AgregarSobranteAsync(id, dto, User.ObtenerPaisId(), User.ObtenerUsuarioActuante(), ct));
+
     [HttpPut("lineas/{lineaId:int}/observacion")]
     [Authorize(Policy = Permisos.ConteoExternoGestionar)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
