@@ -762,6 +762,61 @@ solo habría significado volver a leer lo mismo dos veces. Entidades
   `dotnet ef migrations add ConteoExternoFase3y4 --project src/Inventory.Infrastructure --startup-project src/Inventory.Api`.
 - **Sin verificar por compilación todavía.**
 
+**Fase 5 (importación desde Excel externo)** — `ConteoExternoImportacionService`
+(`IConteoExternoImportacionService`), sin entidad propia: lee/escribe directo contra
+`ConteoExternoProducto`/`ConteoExternoExistencia`.
+
+- **Vista previa + mapeo, no un layout fijo**: a diferencia de la hoja de `/conteos`
+  (que el sistema genera y por eso tiene columnas fijas, ver "Conteo físico"), este
+  Excel viene de un sistema externo con columnas en cualquier orden. `VistaPreviaAsync`
+  devuelve los encabezados (fila 1) + hasta 10 filas de muestra; el usuario decide qué
+  columna (1-based, como se ven en Excel) es Código/Nombre/Familia/Almacén/Lote/
+  Cantidad/Unidad/Costo (`MapeoColumnasConteoExternoDto`) y en qué fila empiezan los
+  datos reales (`FilaInicioDatos` — un Excel externo puede traer título/subtítulo antes
+  del encabezado). Solo Código, Almacén y Cantidad son obligatorios.
+- **Dos llamadas, el archivo se manda dos veces** (`POST .../vista-previa` y
+  `POST .../confirmar`) — nada se guarda server-side entre medio, así que no hay un
+  "importación pendiente" que limpiar si el usuario abandona a mitad de camino.
+- **Fila por fila, nunca aborta toda la importación por una fila mala**: un código sin
+  unidad fijada y sin unidad en el archivo, una cantidad que no es un número, un
+  almacén vacío — se omite esa fila con una advertencia en el resultado
+  (`ImportacionConteoExternoResultadoDto.Advertencias`) y se sigue con la siguiente. Una
+  fila completamente vacía en la columna Código no es un error, se salta en silencio
+  (separador visual dentro del Excel de origen).
+- **Detección de códigos nuevos**: si `CrearProductosNuevos=true` (lo decide el
+  usuario en el mapeo), un código que no existe en el catálogo activo se crea ahí mismo
+  con `Origen = Importado` (Nombre/Familia desde las columnas mapeadas, o el código
+  mismo como nombre si no se mapeó Nombre). Si es `false`, esa fila se omite con
+  advertencia — nunca crea en silencio.
+- **Unidad y costo: mismas reglas que el alta manual, nunca se pisan**: la unidad se
+  fija con la primera fila de ese producto que la traiga (si el producto ya tiene una
+  fijada y el archivo trae una distinta, se avisa pero se usa la del producto — un
+  archivo externo no siempre es internamente consistente, y perder la fila entera por
+  eso sería peor). El costo solo se completa si `ConteoExternoProducto.CostoReferencia`
+  todavía es `null` — nunca sobrescribe un costo ya cargado a mano.
+- **La existencia se actualiza, no se duplica**: upsert por (producto, almacén, lote) —
+  una fila repetida (en el mismo archivo o en una importación posterior) actualiza
+  `CantidadSistema` en vez de crear una fila nueva. El emparejamiento es por referencia
+  de objeto en memoria (no por Id, que un producto recién creado en la misma pasada
+  todavía no tiene hasta el `SaveChanges` final), para poder dedupear sin tener que
+  guardar fila por fila.
+- **Catálogos de producto/unidad/existencia se cargan una sola vez en memoria** al
+  empezar `ImportarAsync` — este módulo es chico (una fábrica, no una cadena), así que
+  no hace falta ir a la base por cada fila del Excel.
+- **Una importación es UNA fila de auditoría** (entidad `ConteoExternoExistencia`,
+  acción "Importar", snapshot con los 4 contadores), igual que la importación de hoja
+  de `/conteos` — no una por línea.
+- **Frontend**: `/conteo-externo/importar` (`ConteoExternoImportacionApiClient`) — subir
+  el archivo (`ZonaArchivo`, reusado sin cambios) dispara la vista previa; el mapeo se
+  arma con `<select>` por campo (uno por columna detectada) y se manda con
+  `POST .../confirmar`, un `MultipartFormDataContent` con el archivo + los campos de
+  `MapeoColumnasConteoExternoDto` prefijados `mapeo.` (`mapeo.ColCodigo`, etc.) — así los
+  bindea el `[FromForm] MapeoColumnasConteoExternoDto mapeo` del controller junto al
+  `IFormFile archivo` en la misma request, sin tener que armar un JSON aparte.
+- **Migración**: ninguna — Fase 5 no agrega columnas ni tablas nuevas, solo un servicio
+  que escribe sobre las entidades de las Fases 1/2.
+- **Sin verificar por compilación todavía.**
+
 ### Más tipos de Ubicación además de Rack/Mueble (consultado 2026-09-14, no implementado)
 
 > El usuario preguntó si valía la pena poder agregar más tipos de ubicación a futuro.
