@@ -4,6 +4,9 @@
 > Nestlé Bolivia). Lee este archivo antes de tocar código. Si el código pide
 > una decisión no documentada acá, preguntá antes de asumir.
 
+**Usuario:** el autor y dueño del proyecto se llama **Andres Sebastian Peinado
+Ardaya**. Usá siempre ese nombre completo al referirte a él.
+
 ## Propósito
 
 Reemplaza el `SISTEMA DE INVENTARIO MARKETING.xlsm` (Excel con macros) por una
